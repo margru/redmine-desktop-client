@@ -3,3 +3,7 @@ sys$command
 bin
 obj
 *.suo
+
+# Local build artifacts (see build.ps1)
+/.refassemblies
+/dist
