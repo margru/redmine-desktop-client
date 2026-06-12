@@ -20,6 +20,7 @@ namespace Redmine.Client
         private string Title = Lang.RedmineClientTitle_NoUser;
 
         private DateTime ticksStartedTime;
+        private DateTime sessionLockedTime;
         private int ticksBegin;
 
         private int Ticks
@@ -1209,12 +1210,24 @@ namespace Redmine.Client
                 switch (e.Reason)
                 {
                     case SessionSwitchReason.SessionLock:
-                        timer1.Stop();
+                        // Stopping timer1 only halts the per-second UI refresh; it does
+                        // NOT pause the measured time, because Ticks is computed from
+                        // (DateTime.Now - ticksStartedTime). Remember when the lock began
+                        // so the locked span can be subtracted again on unlock.
+                        if (this.ticking)
+                        {
+                            sessionLockedTime = DateTime.Now;
+                            timer1.Stop();
+                        }
                         break;
 
                     case SessionSwitchReason.SessionUnlock:
                         if (this.ticking)
                         {
+                            // Push the start anchor forward by however long the session
+                            // was locked, so that time is excluded from the elapsed
+                            // count, then resume the UI refresh.
+                            ticksStartedTime += DateTime.Now - sessionLockedTime;
                             timer1.Start();
                         }
                         break;
