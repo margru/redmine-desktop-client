@@ -177,6 +177,10 @@ namespace Redmine.Client
                     // would skip issues, since the server clamps to 100 while the client
                     // still advances the offset by the requested page size.
                     redmine.PageSize = 100;
+                    // Let the parallel issue-page fetch (MainFormData.GetIssuesParallel) open
+                    // more than the default 2 concurrent connections per host; otherwise the
+                    // parallelism is throttled back to serial.
+                    System.Net.ServicePointManager.DefaultConnectionLimit = 20;
                     this.Cursor = Cursors.AppStarting;
 
                     AsyncGetFormData(projectId, CheckBoxOnlyMe.Checked);
@@ -214,7 +218,7 @@ namespace Redmine.Client
             return projectId;
         }
 
-        private MainFormData PrepareFormData(int projectId, bool onlyMe, Filter filter)
+        private MainFormData PrepareFormData(int projectId, bool onlyMe, Filter filter, bool useCache)
         {
             NameValueCollection parameters = new NameValueCollection();
             IList<Project> allProjects = redmine.GetObjects<Project>(parameters);
@@ -228,7 +232,18 @@ namespace Redmine.Client
                 Projects = MainFormData.ToDictionaryName(projects);
 
                 projectId = GetProjectIdCheckExists(Projects, projectId);
-                return new MainFormData(projects, projectId, onlyMe, filter);
+
+                // When useCache is set, show the last-known issues for this exact query straight
+                // away (or an empty grid on a cache miss) and let AsyncRefreshIssues pull the
+                // live list in the background. A non-null list tells MainFormData to skip its
+                // own (slow) issue fetch. When useCache is false, MainFormData fetches live.
+                IList<Issue> preloadedIssues = null;
+                if (useCache)
+                {
+                    preloadedIssues = IssueCache.TryLoad(IssueCache.BuildKey(projectId, onlyMe, filter))
+                                      ?? new List<Issue>();
+                }
+                return new MainFormData(projects, projectId, onlyMe, filter, preloadedIssues);
             }
             throw new Exception(String.Format(Lang.Error_NoProjectsFound, allProjects.Count));
         }
@@ -926,30 +941,15 @@ namespace Redmine.Client
         }
 
         /// <summary>
-        /// Refresh de form data synchronous
+        /// Refresh the form data. Runs on the background worker (via AsyncGetRestOfFormData) so
+        /// switching project / applying a filter no longer freezes the UI: the cached issues for
+        /// the new query show immediately and the live list is fetched in the background.
         /// </summary>
         private void RefreshFormData()
         {
             LoadLastIds();
-
             this.Cursor = Cursors.AppStarting;
-            SetCurrentWorkName(Lang.BgWork_GetFormData);
-            try
-            {
-                Filter newFilter = (Filter)currentFilter.Clone();
-                FillForm(PrepareFormData(projectId, CheckBoxOnlyMe.Checked, newFilter), newFilter);
-            }
-            catch (LoadException le)
-            {
-                MessageBox.Show(String.Format(Lang.Error_InitFailedException, le.InnerException.Message, le.Message), Lang.Error, MessageBoxButtons.OK, MessageBoxIcon.Stop);
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show(String.Format(Lang.Error_Exception, ex.Message), Lang.Error, MessageBoxButtons.OK, MessageBoxIcon.Stop);
-            }
-            this.Cursor = Cursors.Default;
-            SetCurrentWorkName("");
-            BtnRefreshButton.Text = Lang.BtnRefreshButton;
+            AsyncGetRestOfFormData(projectId, CheckBoxOnlyMe.Checked, currentFilter);
         }
 
         /// <summary>
@@ -1018,14 +1018,16 @@ namespace Redmine.Client
             {
                 try
                 {
-                    MainFormData data = PrepareFormData(projectId, onlyMe, filter);
+                    // Load the menus/filters plus the cached issue list (fast), so the grid
+                    // appears almost immediately...
+                    MainFormData data = PrepareFormData(projectId, onlyMe, filter, true);
 
                     //Let main thread fill form data...
                     return () =>
                     {
                         FillForm(data, (Filter)currentFilter.Clone());
-                        BtnRefreshButton.Text = Lang.BtnRefreshButton;
-                        this.Cursor = Cursors.Default;
+                        // ...then refresh the issues from the server in the background.
+                        AsyncRefreshIssues(data.ProjectId, onlyMe, (Filter)filter.Clone());
                     };
                 }
                 catch (LoadException le)
@@ -1041,6 +1043,55 @@ namespace Redmine.Client
                     //Show the exception in the main thread
                     return () =>
                     {
+                        if (OnInitFailed(e, Lang.BgWork_GetFormData))
+                            Reinit();
+                    };
+                }
+            });
+        }
+
+        /// <summary>
+        /// Refresh the issue list from the server in the background, then update the grid and
+        /// the on-disk cache. The grid is already showing the cached issues at this point, so
+        /// this only swaps in fresher data when it arrives.
+        /// </summary>
+        /// <param name="projectId">The resolved (existing) project id the issues belong to</param>
+        /// <param name="onlyMe">Retrieve only issues assigned to me</param>
+        /// <param name="filter">The active filter the issues were queried with</param>
+        private void AsyncRefreshIssues(int projectId, bool onlyMe, Filter filter)
+        {
+            AddBgWork(Lang.BgWork_GetFormData, () =>
+            {
+                try
+                {
+                    IList<Issue> freshIssues = MainFormData.LoadIssuesFromServer(projectId, onlyMe, filter);
+                    return () =>
+                    {
+                        IssueCache.Save(IssueCache.BuildKey(projectId, onlyMe, filter), freshIssues);
+                        currentIssues = freshIssues;
+                        FilterAndFillCurrentIssues();
+                        // Re-evaluate the buttons that FillForm gated on the (possibly empty,
+                        // on a cache miss) issue count, now that the live list has arrived.
+                        BtnCommitButton.Enabled = freshIssues.Count > 0;
+                        BtnNewIssueButton.Enabled = projectId != -1;
+                        BtnRefreshButton.Text = Lang.BtnRefreshButton;
+                        this.Cursor = Cursors.Default;
+                    };
+                }
+                catch (LoadException le)
+                {
+                    return () =>
+                    {
+                        this.Cursor = Cursors.Default;
+                        if (OnInitFailed(le.InnerException, le.Message))
+                            Reinit();
+                    };
+                }
+                catch (Exception e)
+                {
+                    return () =>
+                    {
+                        this.Cursor = Cursors.Default;
                         if (OnInitFailed(e, Lang.BgWork_GetFormData))
                             Reinit();
                     };

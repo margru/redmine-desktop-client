@@ -17,6 +17,10 @@ namespace Redmine.Client
         [STAThread]
         static void Main()
         {
+            // Must be set before the first HTTP request creates the host's ServicePoint,
+            // otherwise the parallel issue-page fetch is throttled to the default 2
+            // concurrent connections per host. See MainFormData.GetIssuesParallel.
+            System.Net.ServicePointManager.DefaultConnectionLimit = 20;
             try
             {
                 AppDomain.CurrentDomain.UnhandledException += new

@@ -1,11 +1,158 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Collections.Specialized;
+using System.IO;
+using System.Text;
+using System.Xml.Serialization;
 using Redmine.Net.Api.Types;
 using Redmine.Net.Api;
 
 namespace Redmine.Client
 {
+    /// <summary>A single id+name reference (project, status, tracker, ...) as stored in the cache.</summary>
+    public class CachedRef
+    {
+        public int Id { get; set; }
+        public string Name { get; set; }
+    }
+
+    /// <summary>
+    /// The subset of an <see cref="Issue"/> that the issue grid actually displays. The Redmine
+    /// API type cannot be serialized faithfully (its WriteXml only persists the *_id fields and
+    /// drops the display names), so we round-trip through this DTO instead.
+    /// </summary>
+    public class CachedIssue
+    {
+        public int Id { get; set; }
+        public string Subject { get; set; }
+        public CachedRef Project { get; set; }
+        public CachedRef Tracker { get; set; }
+        public CachedRef Status { get; set; }
+        public CachedRef Priority { get; set; }
+        public CachedRef Category { get; set; }
+        public CachedRef AssignedTo { get; set; }
+        public CachedRef FixedVersion { get; set; }
+        public CachedRef ParentIssue { get; set; }
+    }
+
+    /// <summary>
+    /// On-disk cache of the issue list, keyed by the query (project + filter). Lets the UI show
+    /// the last-known issues instantly on startup while the (server-bound, multi-second) refresh
+    /// runs in the background. Best-effort: any failure silently falls back to a live fetch.
+    /// </summary>
+    internal static class IssueCache
+    {
+        private static readonly XmlSerializer Serializer = new XmlSerializer(typeof(List<CachedIssue>));
+
+        private static string Dir
+        {
+            get
+            {
+                string dir = Path.Combine(System.Windows.Forms.Application.CommonAppDataPath, "IssueCache");
+                Directory.CreateDirectory(dir);
+                return dir;
+            }
+        }
+
+        /// <summary>A filesystem-safe key identifying the exact query whose issues are cached.</summary>
+        public static string BuildKey(int projectId, bool onlyMe, Filter filter)
+        {
+            return string.Format("p{0}_me{1}_t{2}_s{3}_pr{4}_v{5}_c{6}_a{7}_q{8}",
+                projectId, onlyMe ? 1 : 0, filter.TrackerId, filter.StatusId, filter.PriorityId,
+                filter.VersionId, filter.CategoryId, filter.AssignedToId, Sanitize(filter.Subject));
+        }
+
+        private static string Sanitize(string s)
+        {
+            if (string.IsNullOrEmpty(s))
+                return "";
+            StringBuilder sb = new StringBuilder(s.Length);
+            foreach (char c in s)
+                sb.Append(char.IsLetterOrDigit(c) ? c : '-');
+            return sb.ToString();
+        }
+
+        public static IList<Issue> TryLoad(string key)
+        {
+            try
+            {
+                string file = Path.Combine(Dir, key + ".xml");
+                if (!File.Exists(file))
+                    return null;
+                using (FileStream fs = File.OpenRead(file))
+                {
+                    List<CachedIssue> cached = (List<CachedIssue>)Serializer.Deserialize(fs);
+                    List<Issue> result = new List<Issue>(cached.Count);
+                    foreach (CachedIssue ci in cached)
+                        result.Add(ToIssue(ci));
+                    return result;
+                }
+            }
+            catch
+            {
+                return null; // a broken/old cache file is not worth crashing over
+            }
+        }
+
+        public static void Save(string key, IEnumerable<Issue> issues)
+        {
+            try
+            {
+                List<CachedIssue> list = new List<CachedIssue>();
+                foreach (Issue i in issues)
+                    list.Add(ToCached(i));
+                string file = Path.Combine(Dir, key + ".xml");
+                using (FileStream fs = File.Create(file))
+                    Serializer.Serialize(fs, list);
+            }
+            catch { /* cache writes are best-effort */ }
+        }
+
+        private static CachedRef Ref(IdentifiableName n)
+        {
+            return n == null ? null : new CachedRef { Id = n.Id, Name = n.Name };
+        }
+
+        private static IdentifiableName Name(CachedRef r)
+        {
+            return r == null ? null : new IdentifiableName { Id = r.Id, Name = r.Name };
+        }
+
+        private static CachedIssue ToCached(Issue i)
+        {
+            return new CachedIssue
+            {
+                Id = i.Id,
+                Subject = i.Subject,
+                Project = Ref(i.Project),
+                Tracker = Ref(i.Tracker),
+                Status = Ref(i.Status),
+                Priority = Ref(i.Priority),
+                Category = Ref(i.Category),
+                AssignedTo = Ref(i.AssignedTo),
+                FixedVersion = Ref(i.FixedVersion),
+                ParentIssue = Ref(i.ParentIssue),
+            };
+        }
+
+        private static Issue ToIssue(CachedIssue c)
+        {
+            return new Issue
+            {
+                Id = c.Id,
+                Subject = c.Subject,
+                Project = Name(c.Project),
+                Tracker = Name(c.Tracker),
+                Status = Name(c.Status),
+                Priority = Name(c.Priority),
+                Category = Name(c.Category),
+                AssignedTo = Name(c.AssignedTo),
+                FixedVersion = Name(c.FixedVersion),
+                ParentIssue = Name(c.ParentIssue),
+            };
+        }
+    }
+
     public class ClientProject : Project
     {
         public ClientProject(Project p) {
@@ -90,7 +237,7 @@ namespace Redmine.Client
         public List<Enumerations.EnumerationItem> Activities { get; private set; }
         public int ProjectId { get; }
 
-        public MainFormData(IList<Project> projects, int projectId, bool onlyMe, Filter filter)
+        public MainFormData(IList<Project> projects, int projectId, bool onlyMe, Filter filter, IList<Issue> preloadedIssues = null)
         {
             ProjectId = projectId;
             Projects = new List<ClientProject>();
@@ -219,49 +366,123 @@ namespace Redmine.Client
 
             try
             {
-                NameValueCollection parameters = InitParameters();
-                if (onlyMe)
-                    parameters.Add(RedmineKeys.ASSIGNED_TO_ID, "me");
-                else if (filter.AssignedToId > 0)
-                    parameters.Add(RedmineKeys.ASSIGNED_TO_ID, filter.AssignedToId.ToString());
-
-                if (filter.TrackerId > 0)
-                    parameters.Add(RedmineKeys.TRACKER_ID, filter.TrackerId.ToString());
-
-                if (filter.StatusId > 0)
-                    parameters.Add(RedmineKeys.STATUS_ID, filter.StatusId.ToString());
-                else if (filter.StatusId < 0)
-                {
-                    switch (filter.StatusId)
-                    {
-                        case -1: // all closed issues
-                            parameters.Add(RedmineKeys.STATUS_ID, "closed");
-                            break;
-
-                        case -2: // all open and closed issues
-                            parameters.Add(RedmineKeys.STATUS_ID, " *");
-                            break;
-                    }
-                }
-
-                if (filter.PriorityId > 0)
-                    parameters.Add(RedmineKeys.PRIORITY_ID, filter.PriorityId.ToString());
-
-                if (filter.VersionId > 0)
-                    parameters.Add(RedmineKeys.FIXED_VERSION_ID, filter.VersionId.ToString());
-
-                if (filter.CategoryId > 0)
-                    parameters.Add(RedmineKeys.CATEGORY_ID, filter.CategoryId.ToString());
-
-                if (!String.IsNullOrEmpty(filter.Subject))
-                    parameters.Add(RedmineKeys.SUBJECT, "~" + filter.Subject);
-
-                Issues = RedmineClientForm.redmine.GetObjects<Issue>(parameters);
-                }
+                // preloadedIssues != null means the caller supplied issues (e.g. from the cache,
+                // possibly an empty list on a cache miss) and a live fetch should be skipped here -
+                // it happens afterwards as a background refresh.
+                Issues = preloadedIssues ?? LoadIssuesFromServer(projectId, onlyMe, filter);
+            }
             catch (Exception e)
             {
                 throw new LoadException(Languages.Lang.BgWork_LoadIssues, e);
             }
+        }
+
+        /// <summary>
+        /// Build the issue-list query parameters (project + filter) for a given view.
+        /// </summary>
+        private static NameValueCollection BuildIssueParameters(int projectId, bool onlyMe, Filter filter)
+        {
+            NameValueCollection parameters = new NameValueCollection();
+            if (projectId != -1)
+                parameters.Add(RedmineKeys.PROJECT_ID, projectId.ToString());
+
+            if (onlyMe)
+                parameters.Add(RedmineKeys.ASSIGNED_TO_ID, "me");
+            else if (filter.AssignedToId > 0)
+                parameters.Add(RedmineKeys.ASSIGNED_TO_ID, filter.AssignedToId.ToString());
+
+            if (filter.TrackerId > 0)
+                parameters.Add(RedmineKeys.TRACKER_ID, filter.TrackerId.ToString());
+
+            if (filter.StatusId > 0)
+                parameters.Add(RedmineKeys.STATUS_ID, filter.StatusId.ToString());
+            else if (filter.StatusId < 0)
+            {
+                switch (filter.StatusId)
+                {
+                    case -1: // all closed issues
+                        parameters.Add(RedmineKeys.STATUS_ID, "closed");
+                        break;
+
+                    case -2: // all open and closed issues
+                        parameters.Add(RedmineKeys.STATUS_ID, " *");
+                        break;
+                }
+            }
+
+            if (filter.PriorityId > 0)
+                parameters.Add(RedmineKeys.PRIORITY_ID, filter.PriorityId.ToString());
+
+            if (filter.VersionId > 0)
+                parameters.Add(RedmineKeys.FIXED_VERSION_ID, filter.VersionId.ToString());
+
+            if (filter.CategoryId > 0)
+                parameters.Add(RedmineKeys.CATEGORY_ID, filter.CategoryId.ToString());
+
+            if (!String.IsNullOrEmpty(filter.Subject))
+                parameters.Add(RedmineKeys.SUBJECT, "~" + filter.Subject);
+
+            return parameters;
+        }
+
+        /// <summary>
+        /// Fetch the issues for a view straight from the server (the slow path - see
+        /// <see cref="GetIssuesParallel"/>). Exposed so the form can refresh issues in the
+        /// background after showing the cached list.
+        /// </summary>
+        public static IList<Issue> LoadIssuesFromServer(int projectId, bool onlyMe, Filter filter)
+        {
+            return GetIssuesParallel(BuildIssueParameters(projectId, onlyMe, filter));
+        }
+
+        /// <summary>
+        /// Fetch every issue matching <paramref name="baseParameters"/>. The Redmine REST
+        /// API returns at most 100 issues per request, so the full "all projects" list takes
+        /// many requests. The default GetObjects&lt;Issue&gt;() walks the pages one-by-one,
+        /// paying the full request latency for each - dozens of serial round-trips for a large
+        /// instance. Instead, fetch the first page (which also reports the total count), then
+        /// pull the remaining pages concurrently. Filtered/per-project queries usually fit in a
+        /// single page and skip the parallel path entirely.
+        /// </summary>
+        private static IList<Issue> GetIssuesParallel(NameValueCollection baseParameters)
+        {
+            const int pageSize = 100;
+
+            NameValueCollection firstParams = new NameValueCollection(baseParameters);
+            firstParams.Set(RedmineKeys.LIMIT, pageSize.ToString());
+            firstParams.Set(RedmineKeys.OFFSET, "0");
+            PaginatedObjects<Issue> first = RedmineClientForm.redmine.GetPaginatedObjects<Issue>(firstParams);
+
+            List<Issue> result = new List<Issue>(first.Objects);
+            int total = first.TotalCount;
+            if (total <= pageSize || first.Objects.Count == 0)
+                return result;
+
+            // Offsets of the pages still to fetch: pageSize, 2*pageSize, ... < total.
+            List<int> offsets = new List<int>();
+            for (int offset = pageSize; offset < total; offset += pageSize)
+                offsets.Add(offset);
+
+            // Fetch them in parallel, keeping each page in its slot so the final list stays
+            // in server order. Each task gets its own parameter copy (NameValueCollection is
+            // not thread-safe and the offset differs per page).
+            List<Issue>[] pages = new List<Issue>[offsets.Count];
+            System.Threading.Tasks.Parallel.For(0, offsets.Count,
+                new System.Threading.Tasks.ParallelOptions { MaxDegreeOfParallelism = 8 },
+                i =>
+                {
+                    NameValueCollection p = new NameValueCollection(baseParameters);
+                    p.Set(RedmineKeys.LIMIT, pageSize.ToString());
+                    p.Set(RedmineKeys.OFFSET, offsets[i].ToString());
+                    pages[i] = RedmineClientForm.redmine.GetPaginatedObjects<Issue>(p).Objects;
+                });
+
+            foreach (List<Issue> page in pages)
+            {
+                if (page != null)
+                    result.AddRange(page);
+            }
+            return result;
         }
 
         private NameValueCollection InitParameters()
