@@ -169,6 +169,13 @@ namespace Redmine.Client
                         redmine = new RedmineManager(RedmineURL, RedmineUser, RedminePassword, Settings.Default.CommunicationType);
                     else
                         redmine = new RedmineManager(RedmineURL, Settings.Default.CommunicationType);
+                    // Fetch the largest page the Redmine REST API allows (it hard-caps
+                    // the limit at 100). The default of 25 makes listing issues slow,
+                    // because GetObjects<>() pulls every page in a separate, sequential
+                    // HTTP request. 100 quarters the number of round-trips; going higher
+                    // would skip issues, since the server clamps to 100 while the client
+                    // still advances the offset by the requested page size.
+                    redmine.PageSize = 100;
                     this.Cursor = Cursors.AppStarting;
 
                     AsyncGetFormData(projectId, CheckBoxOnlyMe.Checked);
@@ -410,7 +417,13 @@ namespace Redmine.Client
             UpdateIssueDataColumns();
             try // Very ugly trick to fix the mono crash reported in the SF.net forum
             {
-                DataGridViewIssues.AutoResizeColumns(DataGridViewAutoSizeColumnsMode.AllCells);
+                // Size columns to the rows that are actually on screen, not to every
+                // row in the result set. AllCells measures (and formats, via the
+                // CellFormatting handler) every cell of every issue on the UI thread,
+                // which freezes the window for seconds on large issue lists. The
+                // Subject column is Fill-sized anyway and the rest hold short values,
+                // so DisplayedCells gives the same layout at a fraction of the cost.
+                DataGridViewIssues.AutoResizeColumns(DataGridViewAutoSizeColumnsMode.DisplayedCells);
             }
             catch (Exception) { }
             DataGridViewIssues.RowHeadersWidth = 20;
