@@ -42,5 +42,52 @@
         {
             Settings.Default.PropertyValues[settingName].PropertyValue = setting;
         }
+
+        // --- Persisted search/filter and editor state ---------------------------------------
+        // Declared here (not in the auto-generated Settings.Designer.cs) so they survive a VS
+        // settings regeneration. ApplicationSettingsBase discovers them by reflection just the
+        // same; DefaultSettingValue supplies the value when user.config has none yet.
+
+        private T Get<T>(string name, T fallback)
+        {
+            object value = this[name];
+            return value == null ? fallback : (T)value;
+        }
+
+        [global::System.Configuration.UserScopedSetting()]
+        [global::System.Configuration.DefaultSettingValue("0")]
+        public int FilterTrackerId { get { return Get("FilterTrackerId", 0); } set { this["FilterTrackerId"] = value; } }
+
+        [global::System.Configuration.UserScopedSetting()]
+        [global::System.Configuration.DefaultSettingValue("0")]
+        public int FilterStatusId { get { return Get("FilterStatusId", 0); } set { this["FilterStatusId"] = value; } }
+
+        [global::System.Configuration.UserScopedSetting()]
+        [global::System.Configuration.DefaultSettingValue("0")]
+        public int FilterPriorityId { get { return Get("FilterPriorityId", 0); } set { this["FilterPriorityId"] = value; } }
+
+        [global::System.Configuration.UserScopedSetting()]
+        [global::System.Configuration.DefaultSettingValue("0")]
+        public int FilterAssignedToId { get { return Get("FilterAssignedToId", 0); } set { this["FilterAssignedToId"] = value; } }
+
+        [global::System.Configuration.UserScopedSetting()]
+        [global::System.Configuration.DefaultSettingValue("0")]
+        public int FilterVersionId { get { return Get("FilterVersionId", 0); } set { this["FilterVersionId"] = value; } }
+
+        [global::System.Configuration.UserScopedSetting()]
+        [global::System.Configuration.DefaultSettingValue("0")]
+        public int FilterCategoryId { get { return Get("FilterCategoryId", 0); } set { this["FilterCategoryId"] = value; } }
+
+        [global::System.Configuration.UserScopedSetting()]
+        [global::System.Configuration.DefaultSettingValue("")]
+        public string FilterSubject { get { return Get("FilterSubject", ""); } set { this["FilterSubject"] = value; } }
+
+        [global::System.Configuration.UserScopedSetting()]
+        [global::System.Configuration.DefaultSettingValue("")]
+        public string LastSearchKeyword { get { return Get("LastSearchKeyword", ""); } set { this["LastSearchKeyword"] = value; } }
+
+        [global::System.Configuration.UserScopedSetting()]
+        [global::System.Configuration.DefaultSettingValue("")]
+        public string LastComment { get { return Get("LastComment", ""); } set { this["LastComment"] = value; } }
     }
 }

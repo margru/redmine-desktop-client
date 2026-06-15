@@ -23,11 +23,20 @@ namespace Redmine.Client
         private DateTime sessionLockedTime;
         private int ticksBegin;
 
-        // How often (in timer ticks/seconds) the running time is persisted via TimerState.
-        // The clock itself is wall-clock based, so this only bounds how much elapsed time a
-        // hard crash could drop from the resume prompt - it is no longer saved every second.
-        // A clean close and every start/pause/reset still save the exact value, so this window
-        // only applies to an unclean shutdown (crash/power loss) while the timer is running.
+        // The clock shows hours:minutes only and refreshes at this cadence (seconds) - there is
+        // no seconds digit to animate, and the elapsed time is wall-clock based regardless. The
+        // whole H:MM is coloured green while the timer runs (normal text when paused) as the
+        // running cue; that colour only changes on start/pause, so it adds no periodic work.
+        private const int TimerIntervalSeconds = 15;
+        private Label labelClockColon;
+        private static readonly System.Drawing.Color ClockRunningColor = System.Drawing.Color.ForestGreen;
+        private static readonly System.Drawing.Color ClockPausedColor = System.Drawing.SystemColors.WindowText;
+
+        // How often the running time is persisted via TimerState. Must be a whole multiple of
+        // TimerIntervalSeconds. The clock is wall-clock based, so this only bounds how much
+        // elapsed time a hard crash could drop from the resume prompt - a clean close and every
+        // start/pause/reset still save the exact value, so this window only applies to an unclean
+        // shutdown (crash/power loss) while the timer is running.
         private const int TimerSaveIntervalSeconds = 60;
         private int ticksSinceTimerSave;
 
@@ -90,7 +99,8 @@ namespace Redmine.Client
             // The config loaded cleanly - snapshot it as the restore point for next time.
             ConfigProtection.Backup();
 
-            timer1.Interval = 1000;
+            timer1.Interval = TimerIntervalSeconds * 1000;
+            SetupClockDisplay();
 
             if (!IsRunningOnMono())
             {
@@ -500,6 +510,18 @@ namespace Redmine.Client
             Settings.Default.UpdateSetting("LastIssueId", issueId);
             Settings.Default.UpdateSetting("LastActivityId", activityId);
             Settings.Default.UpdateSetting("OnlyAssignedToMe", CheckBoxOnlyMe.Checked);
+
+            // Persist the current search/filter and the editor fields so they return on restart.
+            Settings.Default.FilterTrackerId = currentFilter.TrackerId;
+            Settings.Default.FilterStatusId = currentFilter.StatusId;
+            Settings.Default.FilterPriorityId = currentFilter.PriorityId;
+            Settings.Default.FilterAssignedToId = currentFilter.AssignedToId;
+            Settings.Default.FilterVersionId = currentFilter.VersionId;
+            Settings.Default.FilterCategoryId = currentFilter.CategoryId;
+            Settings.Default.FilterSubject = currentFilter.Subject ?? "";
+            Settings.Default.LastSearchKeyword = textBoxSearch.Text;
+            Settings.Default.LastComment = TextBoxComment.Text;
+
             Settings.Default.Save();
         }
 
@@ -549,6 +571,21 @@ namespace Redmine.Client
             issueId = Settings.Default.LastIssueId;
             activityId = Settings.Default.LastActivityId;
             CheckBoxOnlyMe.Checked = Settings.Default.OnlyAssignedToMe;
+
+            // Restore the last search/filter so the same view comes back on restart. The combos
+            // get re-selected from currentFilter in FillForm once their data has loaded; the text
+            // fields can be set straight away.
+            currentFilter.TrackerId = Settings.Default.FilterTrackerId;
+            currentFilter.StatusId = Settings.Default.FilterStatusId;
+            currentFilter.PriorityId = Settings.Default.FilterPriorityId;
+            currentFilter.AssignedToId = Settings.Default.FilterAssignedToId;
+            currentFilter.VersionId = Settings.Default.FilterVersionId;
+            currentFilter.CategoryId = Settings.Default.FilterCategoryId;
+            currentFilter.Subject = Settings.Default.FilterSubject;
+            TextBoxSubject.Text = currentFilter.Subject;
+            textBoxSearch.Text = Settings.Default.LastSearchKeyword;
+            TextBoxComment.Text = Settings.Default.LastComment;
+
             UpdateFilterControls();
 
             BtnNewIssueButton.Visible = RedmineVersion >= ApiVersion.V13x;
@@ -675,6 +712,8 @@ namespace Redmine.Client
             BtnStartButton.Text = Lang.BtnStartButton;
             ticksBegin = Ticks;
             ticking = false;
+            UpdateTime();          // reflect the exact stop time (the slow timer may be mid-interval)
+            SetClockRunning(false); // grey colon when paused
         }
 
         private void StartTimer()
@@ -683,19 +722,67 @@ namespace Redmine.Client
             timer1.Start();
             BtnStartButton.Text = Lang.BtnStartButton_Pause;
             ticking = true;
+            UpdateTime();          // show the current time at once rather than after the first tick
+            SetClockRunning(true);  // green colon while running
             UpdateIssueIfNeeded();
             if (MinimizeOnStartTimer)
                 Minimize();
         }
 
+        // Lay out the running-time display as H:MM. The seconds box is kept in the control tree
+        // but hidden, so its value is still available for manual time edits. The hours box, the
+        // colon and the minutes box are spread across the same width as the date picker below
+        // (with the digits centred) so the two rows line up.
+        private void SetupClockDisplay()
+        {
+            TextBoxSeconds.Visible = false;
 
+            int left = TextBoxHours.Left;
+            int right = dateTimePicker1.Right;   // align H:MM with the date picker underneath
+            int top = TextBoxHours.Top;
+            int height = TextBoxHours.Height;
+            const int colonWidth = 10;
+            int boxWidth = (right - left - colonWidth) / 2;
+
+            TextBoxHours.SetBounds(left, top, boxWidth, height);
+            TextBoxHours.TextAlign = HorizontalAlignment.Center;
+
+            int colonLeft = left + boxWidth;
+            labelClockColon = new Label
+            {
+                Name = "labelClockColon",
+                AutoSize = false,
+                Text = ":",
+                TextAlign = System.Drawing.ContentAlignment.MiddleCenter,
+                Font = new System.Drawing.Font(TextBoxHours.Font, System.Drawing.FontStyle.Bold),
+                Location = new System.Drawing.Point(colonLeft, top),
+                Size = new System.Drawing.Size(colonWidth, height)
+            };
+            this.Controls.Add(labelClockColon);
+            labelClockColon.BringToFront();
+
+            int minutesLeft = colonLeft + colonWidth;
+            TextBoxMinutes.SetBounds(minutesLeft, top, right - minutesLeft, height);
+            TextBoxMinutes.TextAlign = HorizontalAlignment.Center;
+
+            SetClockRunning(false);
+        }
+
+        private void SetClockRunning(bool running)
+        {
+            System.Drawing.Color color = running ? ClockRunningColor : ClockPausedColor;
+            TextBoxHours.ForeColor = color;
+            TextBoxMinutes.ForeColor = color;
+            if (labelClockColon != null)
+                labelClockColon.ForeColor = color;
+        }
 
         private void timer1_Tick(object sender, EventArgs e)
         {
             this.UpdateTime();
             // Persist the running time only every so often instead of every second. State
             // transitions (start/pause/reset) and a clean exit still save the exact value.
-            if (++ticksSinceTimerSave >= TimerSaveIntervalSeconds)
+            if (++ticksSinceTimerSave >= TimerSaveIntervalSeconds / TimerIntervalSeconds)
             {
                 TimerState.Save(this.ticking, Ticks);
                 ticksSinceTimerSave = 0;
