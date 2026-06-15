@@ -104,6 +104,7 @@ namespace Redmine.Client
 			}
             this.FormClosing += new FormClosingEventHandler(RedmineClientForm_FormClosing);
             SystemEvents.SessionSwitch += new SessionSwitchEventHandler(SystemEvents_SessionSwitch);
+            UpdateTitle(); // show the version in the title bar from the first paint
             Reinit(false);
 
             //At last add check-for-updates work...
@@ -1180,12 +1181,17 @@ namespace Redmine.Client
             UpdateTitle();
         }
 
+        // Version shown in the window title; read from the assembly so it always matches
+        // AssemblyInfo (major.minor.build, e.g. "2.1.0").
+        private static readonly string VersionString =
+            System.Reflection.Assembly.GetExecutingAssembly().GetName().Version.ToString(3);
+
         /// <summary>
-        /// Update the window title with the current background job (if one)
+        /// Update the window title with the version and the current background job (if one)
         /// </summary>
         private void UpdateTitle()
         {
-            String title = Title;
+            String title = Title + "  [v" + VersionString + "]";
             if (!String.IsNullOrEmpty(currentWorkName))
                 title += " - " + currentWorkName + "...";
             this.Text = title;
