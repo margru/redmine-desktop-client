@@ -205,7 +205,7 @@ namespace Redmine.Client.Properties {
         
         [global::System.Configuration.UserScopedSettingAttribute()]
         [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
-        [global::System.Configuration.DefaultSettingValueAttribute("3")]
+        [global::System.Configuration.DefaultSettingValueAttribute("13")]
         public int ApiVersion {
             get {
                 return ((int)(this["ApiVersion"]));

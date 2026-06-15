@@ -38,7 +38,14 @@ namespace Redmine.Client
             new IdentifiableName { Id = (int)ApiVersion.V22x, Name = LangTools.GetTextForApiVersion(ApiVersion.V22x) },
             new IdentifiableName { Id = (int)ApiVersion.V23x, Name = LangTools.GetTextForApiVersion(ApiVersion.V23x) },
             new IdentifiableName { Id = (int)ApiVersion.V24x, Name = LangTools.GetTextForApiVersion(ApiVersion.V24x) },
-            new IdentifiableName { Id = (int)ApiVersion.V25x, Name = LangTools.GetTextForApiVersion(ApiVersion.V25x) }
+            new IdentifiableName { Id = (int)ApiVersion.V25x, Name = LangTools.GetTextForApiVersion(ApiVersion.V25x) },
+            // Everything from 2.4 on uses the same feature set (see the ApiVersion enum); these
+            // are listed only so the picker can match a modern server. Major versions only - no
+            // need to enumerate every minor release.
+            new IdentifiableName { Id = (int)ApiVersion.V30x, Name = LangTools.GetTextForApiVersion(ApiVersion.V30x) },
+            new IdentifiableName { Id = (int)ApiVersion.V40x, Name = LangTools.GetTextForApiVersion(ApiVersion.V40x) },
+            new IdentifiableName { Id = (int)ApiVersion.V50x, Name = LangTools.GetTextForApiVersion(ApiVersion.V50x) },
+            new IdentifiableName { Id = (int)ApiVersion.V60x, Name = LangTools.GetTextForApiVersion(ApiVersion.V60x) }
         };
 
         public SettingsForm()

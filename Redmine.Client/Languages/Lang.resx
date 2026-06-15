@@ -767,6 +767,18 @@ or Request attention every
   <data name="ApiVersion_V25x" xml:space="preserve">
     <value>V2.5.x</value>
   </data>
+  <data name="ApiVersion_V30x" xml:space="preserve">
+    <value>V3.x</value>
+  </data>
+  <data name="ApiVersion_V40x" xml:space="preserve">
+    <value>V4.x</value>
+  </data>
+  <data name="ApiVersion_V50x" xml:space="preserve">
+    <value>V5.x</value>
+  </data>
+  <data name="ApiVersion_V60x" xml:space="preserve">
+    <value>V6.x</value>
+  </data>
   <data name="BgWork_LoadCustomFields" xml:space="preserve">
     <value>loading Custom Fields</value>
   </data>

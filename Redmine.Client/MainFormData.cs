@@ -177,6 +177,16 @@ namespace Redmine.Client
         }
     }
 
+    // The enum order matters: it is compared with >= throughout the code to gate features by
+    // minimum server version, and the *integer index* is what gets persisted as the ApiVersion
+    // setting. Therefore only ever APPEND new members - never reorder or remove - or existing
+    // user.config values would silently map to the wrong version.
+    //
+    // The client only changes behaviour at four breakpoints: V13x (issues/trackers/statuses),
+    // V14x (project memberships), V22x (server-side priorities/activities) and V24x (custom
+    // fields). There is no upper-bound check anywhere, so every server from 2.4 onwards behaves
+    // identically. The entries past V24x are purely so the picker can reflect the user's actual
+    // server version; they need no new feature gates.
     public enum ApiVersion
     {
         V10x,
@@ -190,6 +200,10 @@ namespace Redmine.Client
         V23x,
         V24x,
         V25x,
+        V30x,
+        V40x,
+        V50x,
+        V60x,
     }
 
     public class Filter : ICloneable
