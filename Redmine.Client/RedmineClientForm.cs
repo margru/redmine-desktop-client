@@ -23,6 +23,14 @@ namespace Redmine.Client
         private DateTime sessionLockedTime;
         private int ticksBegin;
 
+        // How often (in timer ticks/seconds) the running time is persisted via TimerState.
+        // The clock itself is wall-clock based, so this only bounds how much elapsed time a
+        // hard crash could drop from the resume prompt - it is no longer saved every second.
+        // A clean close and every start/pause/reset still save the exact value, so this window
+        // only applies to an unclean shutdown (crash/power loss) while the timer is running.
+        private const int TimerSaveIntervalSeconds = 60;
+        private int ticksSinceTimerSave;
+
         private int Ticks
         {
             get
@@ -79,6 +87,8 @@ namespace Redmine.Client
                 Settings.Default.Save();
             }
             Settings.Default.Reload();
+            // The config loaded cleanly - snapshot it as the restore point for next time.
+            ConfigProtection.Backup();
 
             timer1.Interval = 1000;
 
@@ -157,9 +167,12 @@ namespace Redmine.Client
                     LoadConfig();
                     if (!clientIsRunning)
                     {
-                        this.ticksBegin = Settings.Default.TickingTicks;
+                        bool wasTicking;
+                        int savedTicks;
+                        TimerState.TryLoad(out wasTicking, out savedTicks);
+                        this.ticksBegin = savedTicks;
                         this.UpdateTime();
-                        if (Settings.Default.IsTicking)
+                        if (wasTicking)
                         {
                             if (MessageBox.Show(Lang.Timer_WasTickingWhenClosed, Lang.Question, MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes)
                                 this.StartTimer();
@@ -650,7 +663,7 @@ namespace Redmine.Client
                 PauzeTimer();
             else
                 StartTimer();
-            Settings.Default.SetTickingTick(this.ticking, Ticks);
+            TimerState.Save(this.ticking, Ticks);
             UpdateNotifyIconText();
             UpdateToolStripMenuItemsStartPause();
         }
@@ -679,7 +692,13 @@ namespace Redmine.Client
         private void timer1_Tick(object sender, EventArgs e)
         {
             this.UpdateTime();
-            Settings.Default.SetTickingTick(this.ticking, Ticks);
+            // Persist the running time only every so often instead of every second. State
+            // transitions (start/pause/reset) and a clean exit still save the exact value.
+            if (++ticksSinceTimerSave >= TimerSaveIntervalSeconds)
+            {
+                TimerState.Save(this.ticking, Ticks);
+                ticksSinceTimerSave = 0;
+            }
             AlertIfMinimized();
         }
 
@@ -696,7 +715,7 @@ namespace Redmine.Client
 
             this.ticksBegin = 0;
             this.UpdateTime();
-            Settings.Default.SetTickingTick(this.ticking, this.Ticks);
+            TimerState.Save(this.ticking, this.Ticks);
             this.dateTimePicker1.Value = DateTime.Now;
             this.TextBoxComment.Text = String.Empty;
         }
@@ -741,7 +760,7 @@ namespace Redmine.Client
                 return; //Cannot update right now...
             ticksBegin = Convert.ToInt32(TextBoxHours.Text)*3600 + Convert.ToInt32(TextBoxMinutes.Text)*60 +
                          Convert.ToInt32(TextBoxSeconds.Text);
-            Properties.Settings.Default.SetTickingTick(ticking, Ticks);
+            TimerState.Save(ticking, Ticks);
             UpdateTime();
         }
 
@@ -974,6 +993,9 @@ namespace Redmine.Client
                 return; //User canceled.
 
             Reinit();
+            // The user just changed (and saved) settings - refresh the known-good backup so a
+            // later corruption restores the new URL/credentials, not stale ones.
+            ConfigProtection.Backup();
         }
 
         /// <summary>
@@ -1245,7 +1267,11 @@ namespace Redmine.Client
         private void OnClosing(object sender, FormClosingEventArgs e)
         {
             LoadLastIds();
+            // Save the exact running time (separate atomic file) now that the per-second save is
+            // gone, then snapshot the cleanly-written config as the restore point for next launch.
+            TimerState.Save(ticking, Ticks);
             SaveRuntimeConfig();
+            ConfigProtection.Backup();
         }
 
         /// <summary>
