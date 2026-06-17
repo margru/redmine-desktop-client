@@ -457,10 +457,10 @@ namespace Redmine.Client.Properties {
         
         [global::System.Configuration.UserScopedSettingAttribute()]
         [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
-        [global::System.Configuration.DefaultSettingValueAttribute("xml")]
-        public global::Redmine.Net.Api.MimeFormat CommunicationType {
+        [global::System.Configuration.DefaultSettingValueAttribute("Xml")]
+        public global::Redmine.Net.Api.Serialization.SerializationType CommunicationType {
             get {
-                return ((global::Redmine.Net.Api.MimeFormat)(this["CommunicationType"]));
+                return ((global::Redmine.Net.Api.Serialization.SerializationType)(this["CommunicationType"]));
             }
             set {
                 this["CommunicationType"] = value;

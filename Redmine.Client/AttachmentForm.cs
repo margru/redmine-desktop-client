@@ -10,6 +10,8 @@ using Redmine.Net.Api.Types;
 using Redmine.Client.Languages;
 using System.IO;
 using Microsoft.Win32;
+// Redmine.Net.Api.Types now also defines a File type; disambiguate the BCL one we use here.
+using File = System.IO.File;
 
 namespace Redmine.Client
 {
@@ -17,7 +19,7 @@ namespace Redmine.Client
     {
         private DialogType type;
         private Issue issue;
-        public Attachment NewAttachment { get; private set; }
+        public PendingAttachment NewAttachment { get; private set; }
 
         public AttachmentForm(Issue issue, DialogType type, string path)
         {
@@ -49,18 +51,18 @@ namespace Redmine.Client
                     uploadedFile.ContentType = GetMimeType(Path.GetExtension(textBoxAttachmentFilePath.Text));
                     issue.Uploads = new List<Upload>();
                     issue.Uploads.Add(uploadedFile);
-                    RedmineClientForm.redmine.UpdateObject<Issue>(issue.Id.ToString(), issue);
+                    RedmineClientForm.redmine.Update<Issue>(issue.Id.ToString(), issue);
                 }
                 else
                 {
-                    NewAttachment = new Attachment
+                    NewAttachment = new PendingAttachment
                     {
                         ContentUrl = textBoxAttachmentFilePath.Text,
                         Description = textBoxDescription.Text,
                         FileName = Path.GetFileName(textBoxAttachmentFilePath.Text),
                         ContentType = GetMimeType(Path.GetExtension(textBoxAttachmentFilePath.Text)),
                         FileSize = (int)new FileInfo(textBoxAttachmentFilePath.Text).Length,
-                        Author = new IdentifiableName { Id = RedmineClientForm.Instance.CurrentUser.Id, Name = RedmineClientForm.Instance.CurrentUser.CompleteName() }
+                        Author = ClientExtensionMethods.Named(RedmineClientForm.Instance.CurrentUser.Id, RedmineClientForm.Instance.CurrentUser.CompleteName())
                     };
                 }
                 DialogResult = DialogResult.OK;

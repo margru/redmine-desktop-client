@@ -40,7 +40,7 @@ namespace Redmine.Client
                     try
                     {
                         NameValueCollection parameters = new NameValueCollection { { "issue_id", issue.Id.ToString() } };
-                        IList<TimeEntry> entries = RedmineClientForm.redmine.GetObjects<TimeEntry>(parameters);
+                        IList<TimeEntry> entries = RedmineClientForm.redmine.Get<TimeEntry>(parameters.ToOptions());
 
                         //Let main thread fill form data...
                         return () =>
@@ -179,7 +179,7 @@ namespace Redmine.Client
                     {
                         try
                         {
-                            RedmineClientForm.redmine.DeleteObject<TimeEntry>(timeEntry.Id.ToString(), null);
+                            RedmineClientForm.redmine.Delete<TimeEntry>(timeEntry.Id.ToString());
                             return () =>
                                 {
                                     AsyncLoadTimeEntries();

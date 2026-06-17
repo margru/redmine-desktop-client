@@ -8,6 +8,7 @@ using System.Drawing;
 using System.Windows.Forms;
 using Redmine.Net.Api;
 using Redmine.Net.Api.Types;
+using Redmine.Net.Api.Extensions;
 using Redmine.Client.Languages;
 using Redmine.Client.Properties;
 
@@ -159,7 +160,7 @@ namespace Redmine.Client
         {
             try
             {
-                projectId = ((Project)ComboBoxProject.SelectedItem).Id;
+                projectId = ((ClientProject)ComboBoxProject.SelectedItem).Id;
                 activityId = ((Enumerations.EnumerationItem)ComboBoxActivity.SelectedItem).Id;
                 issueId = ((Issue)DataGridViewIssues.SelectedRows[0].DataBoundItem).Id;
             }
@@ -190,21 +191,16 @@ namespace Redmine.Client
                         }
                     }
 
+                    // Fetch the largest page the Redmine REST API allows (it hard-caps the limit
+                    // at 100). The default makes listing issues slow, because Get<>() pulls every
+                    // page in a separate, sequential HTTP request. 100 quarters the round-trips;
+                    // going higher would skip issues, since the server clamps to 100 while the
+                    // client still advances the offset by the requested page size. The page size
+                    // is now part of the connection options (set on the builder).
                     if (RedmineAuthentication)
-                        redmine = new RedmineManager(RedmineURL, RedmineUser, RedminePassword, Settings.Default.CommunicationType);
+                        redmine = ClientExtensionMethods.CreateManager(RedmineURL, RedmineUser, RedminePassword, Settings.Default.CommunicationType, 100);
                     else
-                        redmine = new RedmineManager(RedmineURL, Settings.Default.CommunicationType);
-                    // Fetch the largest page the Redmine REST API allows (it hard-caps
-                    // the limit at 100). The default of 25 makes listing issues slow,
-                    // because GetObjects<>() pulls every page in a separate, sequential
-                    // HTTP request. 100 quarters the number of round-trips; going higher
-                    // would skip issues, since the server clamps to 100 while the client
-                    // still advances the offset by the requested page size.
-                    redmine.PageSize = 100;
-                    // Let the parallel issue-page fetch (MainFormData.GetIssuesParallel) open
-                    // more than the default 2 concurrent connections per host; otherwise the
-                    // parallelism is throttled back to serial.
-                    System.Net.ServicePointManager.DefaultConnectionLimit = 20;
+                        redmine = ClientExtensionMethods.CreateManager(RedmineURL, null, null, Settings.Default.CommunicationType, 100);
                     this.Cursor = Cursors.AppStarting;
 
                     AsyncGetFormData(projectId, CheckBoxOnlyMe.Checked);
@@ -245,7 +241,7 @@ namespace Redmine.Client
         private MainFormData PrepareFormData(int projectId, bool onlyMe, Filter filter, bool useCache)
         {
             NameValueCollection parameters = new NameValueCollection();
-            IList<Project> allProjects = redmine.GetObjects<Project>(parameters);
+            IList<Project> allProjects = redmine.Get<Project>(parameters.ToOptions());
             IList<Project> projects;
             if (Settings.Default.OnlyMyProjects)
                 projects = OnlyProjectsForMember(currentUser, allProjects);
@@ -939,16 +935,17 @@ namespace Redmine.Client
                 if (commitDlg.ShowDialog(this) == DialogResult.OK)
                 {
                     TimeEntry entry = new TimeEntry();
-                    entry.Activity = new IdentifiableName { Id = commitDlg.activityId };
+                    entry.Activity = ClientExtensionMethods.Named(commitDlg.activityId, null);
                     entry.Comments = commitDlg.Comment;
                     entry.Hours = (decimal)Ticks / 3600;
-                    entry.Issue = new IdentifiableName { Id = selectedIssue.Id };
-                    entry.Project = new IdentifiableName { Id = selectedIssue.Project.Id };
+                    entry.Issue = ClientExtensionMethods.Named(selectedIssue.Id, null);
+                    entry.Project = ClientExtensionMethods.Named(selectedIssue.Project.Id, null);
                     entry.SpentOn = dateTimePicker1.Value;
-                    entry.User = new IdentifiableName { Id = currentUser.Id };
+                    // TimeEntry.User is read-only in the modern API; the entry is logged for the
+                    // authenticated user. (Logging on behalf of another user was dropped.)
                     try
                     {
-                        redmine.CreateObject(entry);
+                        redmine.Create(entry);
                         ResetForm();
                         MessageBox.Show(Lang.CommitSuccessfullText, Lang.CommitSuccessfullTitle, MessageBoxButtons.OK,
                                         MessageBoxIcon.Information);
@@ -1231,7 +1228,7 @@ namespace Redmine.Client
                 {
                     NameValueCollection parameters = new NameValueCollection();
                     parameters.Add("include", "memberships");
-                    User newCurrentUser = redmine.GetCurrentUser(parameters);
+                    User newCurrentUser = redmine.GetCurrentUser(parameters.ToOptions());
                     return () =>
                     {
                         currentUser = newCurrentUser;
@@ -1317,20 +1314,28 @@ namespace Redmine.Client
 
         public static void ShowIssue(Issue issue)
         {
+            ShowIssue(issue.Id, issue.Project);
+        }
+
+        // Id-based entry point. The modern API's Issue is immutable, so callers that only know the
+        // issue number (related/child issues, "open specific issue") pass the id directly instead
+        // of synthesising a stub Issue.
+        public static void ShowIssue(int issueId, IdentifiableName project = null)
+        {
             try
             {
                 foreach (Form f in Application.OpenForms)
                 {
                     if (f.GetType() == typeof(IssueForm))
                     {
-                        if (((IssueForm)f).ShowingIssue(issue.Id))
+                        if (((IssueForm)f).ShowingIssue(issueId))
                         {
                             f.Focus();
                             return;
                         }
                     }
                 }
-                IssueForm dlg = new IssueForm(issue);
+                IssueForm dlg = new IssueForm(issueId, project);
                 dlg.Size = new Size(Settings.Default.IssueWindowSizeX,
                                     Settings.Default.IssueWindowSizeY);
                 dlg.Show();
@@ -1439,31 +1444,31 @@ namespace Redmine.Client
 
         private bool UpdateIssueState(Issue issue, int idState)
         {
-            Issue originalIssue = redmine.GetObject<Issue>(issue.Id.ToString(), null);
+            Issue originalIssue = redmine.Get<Issue>(issue.Id.ToString(), null);
             if (originalIssue.Status.Id == idState)
                 return false;
 
-            Issue newIssue = (Issue)originalIssue.Clone();
+            Issue newIssue = originalIssue.Clone(false);
 
-            Dictionary<int, IssueStatus> statusDict = MainFormData.ToDictionaryName<IssueStatus>(redmine.GetObjects<IssueStatus>());
+            Dictionary<int, IssueStatus> statusDict = MainFormData.ToDictionaryName<IssueStatus>(redmine.Get<IssueStatus>());
             IssueStatus newStatus;
             if (!statusDict.TryGetValue(idState, out newStatus))
                 throw new Exception(Lang.Error_ClosedStatusUnknown);
 
-            newIssue.Status = new IdentifiableName { Id = newStatus.Id, Name = newStatus.Name };
+            newIssue.Status = ClientExtensionMethods.NamedRef<IssueStatus>(newStatus.Id, newStatus.Name);
             if (Settings.Default.AddNoteOnChangeStatus)
             {
                 UpdateIssueNoteForm dlg = new UpdateIssueNoteForm(originalIssue, newIssue);
                 if (dlg.ShowDialog(this) == DialogResult.OK)
                 {
                     newIssue.Notes = dlg.Note;
-                    RedmineClientForm.redmine.UpdateObject<Issue>(originalIssue.Id.ToString(), newIssue);
+                    RedmineClientForm.redmine.Update<Issue>(originalIssue.Id.ToString(), newIssue);
                 }
                 else
                     return false;
             }
             else
-                RedmineClientForm.redmine.UpdateObject<Issue>(originalIssue.Id.ToString(), newIssue);
+                RedmineClientForm.redmine.Update<Issue>(originalIssue.Id.ToString(), newIssue);
             return true;
         }
 
@@ -1851,8 +1856,7 @@ namespace Redmine.Client
             OpenSpecificIssueForm dlg = new OpenSpecificIssueForm();
             if (dlg.ShowDialog(this) == DialogResult.OK)
             {
-                Issue issue = new Issue { Id = dlg.IssueNumber };
-                ShowIssue(issue);
+                ShowIssue(dlg.IssueNumber);
             }
         }
 

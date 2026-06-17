@@ -6,6 +6,8 @@ using System.IO;
 using System.Xml;
 using System.Xml.Serialization;
 using Redmine.Net.Api;
+using Redmine.Net.Api.Net;
+using Redmine.Net.Api.Serialization;
 using Redmine.Net.Api.Types;
 using System.Collections.Specialized;
 
@@ -13,6 +15,54 @@ namespace Redmine.Client
 {
     public static class ClientExtensionMethods
     {
+        /// <summary>
+        /// Wraps a query-parameter collection as the modern API's RequestOptions. The old library
+        /// took a NameValueCollection directly on Get/GetObjects; the new one takes RequestOptions
+        /// whose QueryString carries the same parameters.
+        /// </summary>
+        public static RequestOptions ToOptions(this NameValueCollection parameters)
+        {
+            return parameters == null ? null : new RequestOptions { QueryString = parameters };
+        }
+
+        /// <summary>
+        /// Creates an IdentifiableName-derived reference (IssueStatus, ProjectTracker, ...) with a
+        /// given id and name. The modern API made Id read-only, so the old
+        /// <c>new IssueStatus { Id = x, Name = y }</c> object initializers no longer compile;
+        /// Id is set through the Create factory and Name assigned afterwards.
+        /// </summary>
+        public static T NamedRef<T>(int id, string name) where T : IdentifiableName, new()
+        {
+            T value = IdentifiableName.Create<T>(id);
+            value.Name = name;
+            return value;
+        }
+
+        /// <summary>Shorthand for an <see cref="IdentifiableName"/> with a given id and name.
+        /// (The modern API's IdentifiableName(int,string) constructor is not public.)</summary>
+        public static IdentifiableName Named(int id, string name)
+        {
+            return NamedRef<IdentifiableName>(id, name);
+        }
+
+        /// <summary>
+        /// Builds a RedmineManager via the modern options-builder. Replaces the old
+        /// <c>new RedmineManager(url[, user, password], mimeFormat)</c> constructors. Pass a null
+        /// or empty login for anonymous access. Page size is baked into the connection options now
+        /// (the Redmine REST API hard-caps the limit at 100).
+        /// </summary>
+        public static RedmineManager CreateManager(string host, string login, string password,
+            SerializationType serialization, int pageSize = 100)
+        {
+            var builder = new RedmineManagerOptionsBuilder()
+                .WithHost(host)
+                .WithPageSize(pageSize)
+                .WithSerializationType(serialization);
+            if (!string.IsNullOrEmpty(login))
+                builder = builder.WithBasicAuthentication(login, password);
+            return new RedmineManager(builder);
+        }
+
         public static void WriteCollectionAsElement<T>(this XmlWriter writer, IList<T> list, string listname) where T : class
         {
             var serializer = new XmlSerializer(typeof(T));

@@ -4,6 +4,8 @@ using System.Windows.Forms;
 using System.Collections.Generic;
 using Redmine.Client.Languages;
 using Redmine.Net.Api.Types;
+using Redmine.Net.Api.Extensions;
+using Redmine.Net.Api.Serialization;
 using Redmine.Client.Properties;
 using System.Collections.Specialized;
 
@@ -28,24 +30,24 @@ namespace Redmine.Client
         /* api version lower then 1.1 does not support time-entry, so is not supported. */
 
         private List<IdentifiableName> apiVersions = new List<IdentifiableName> {
-            /*new IdentifiableName { Id = (int)ApiVersion.V10x, Name = LangTools.GetTextForApiVersion(ApiVersion.V10x) },*/
-            new IdentifiableName { Id = (int)ApiVersion.V11x, Name = LangTools.GetTextForApiVersion(ApiVersion.V11x) },
-            new IdentifiableName { Id = (int)ApiVersion.V12x, Name = LangTools.GetTextForApiVersion(ApiVersion.V12x) },
-            new IdentifiableName { Id = (int)ApiVersion.V13x, Name = LangTools.GetTextForApiVersion(ApiVersion.V13x) },
-            new IdentifiableName { Id = (int)ApiVersion.V14x, Name = LangTools.GetTextForApiVersion(ApiVersion.V14x) },
-            new IdentifiableName { Id = (int)ApiVersion.V20x, Name = LangTools.GetTextForApiVersion(ApiVersion.V20x) },
-            new IdentifiableName { Id = (int)ApiVersion.V21x, Name = LangTools.GetTextForApiVersion(ApiVersion.V21x) },
-            new IdentifiableName { Id = (int)ApiVersion.V22x, Name = LangTools.GetTextForApiVersion(ApiVersion.V22x) },
-            new IdentifiableName { Id = (int)ApiVersion.V23x, Name = LangTools.GetTextForApiVersion(ApiVersion.V23x) },
-            new IdentifiableName { Id = (int)ApiVersion.V24x, Name = LangTools.GetTextForApiVersion(ApiVersion.V24x) },
-            new IdentifiableName { Id = (int)ApiVersion.V25x, Name = LangTools.GetTextForApiVersion(ApiVersion.V25x) },
+            /*ClientExtensionMethods.Named((int)ApiVersion.V10x, LangTools.GetTextForApiVersion(ApiVersion.V10x)),*/
+            ClientExtensionMethods.Named((int)ApiVersion.V11x, LangTools.GetTextForApiVersion(ApiVersion.V11x)),
+            ClientExtensionMethods.Named((int)ApiVersion.V12x, LangTools.GetTextForApiVersion(ApiVersion.V12x)),
+            ClientExtensionMethods.Named((int)ApiVersion.V13x, LangTools.GetTextForApiVersion(ApiVersion.V13x)),
+            ClientExtensionMethods.Named((int)ApiVersion.V14x, LangTools.GetTextForApiVersion(ApiVersion.V14x)),
+            ClientExtensionMethods.Named((int)ApiVersion.V20x, LangTools.GetTextForApiVersion(ApiVersion.V20x)),
+            ClientExtensionMethods.Named((int)ApiVersion.V21x, LangTools.GetTextForApiVersion(ApiVersion.V21x)),
+            ClientExtensionMethods.Named((int)ApiVersion.V22x, LangTools.GetTextForApiVersion(ApiVersion.V22x)),
+            ClientExtensionMethods.Named((int)ApiVersion.V23x, LangTools.GetTextForApiVersion(ApiVersion.V23x)),
+            ClientExtensionMethods.Named((int)ApiVersion.V24x, LangTools.GetTextForApiVersion(ApiVersion.V24x)),
+            ClientExtensionMethods.Named((int)ApiVersion.V25x, LangTools.GetTextForApiVersion(ApiVersion.V25x)),
             // Everything from 2.4 on uses the same feature set (see the ApiVersion enum); these
             // are listed only so the picker can match a modern server. Major versions only - no
             // need to enumerate every minor release.
-            new IdentifiableName { Id = (int)ApiVersion.V30x, Name = LangTools.GetTextForApiVersion(ApiVersion.V30x) },
-            new IdentifiableName { Id = (int)ApiVersion.V40x, Name = LangTools.GetTextForApiVersion(ApiVersion.V40x) },
-            new IdentifiableName { Id = (int)ApiVersion.V50x, Name = LangTools.GetTextForApiVersion(ApiVersion.V50x) },
-            new IdentifiableName { Id = (int)ApiVersion.V60x, Name = LangTools.GetTextForApiVersion(ApiVersion.V60x) }
+            ClientExtensionMethods.Named((int)ApiVersion.V30x, LangTools.GetTextForApiVersion(ApiVersion.V30x)),
+            ClientExtensionMethods.Named((int)ApiVersion.V40x, LangTools.GetTextForApiVersion(ApiVersion.V40x)),
+            ClientExtensionMethods.Named((int)ApiVersion.V50x, LangTools.GetTextForApiVersion(ApiVersion.V50x)),
+            ClientExtensionMethods.Named((int)ApiVersion.V60x, LangTools.GetTextForApiVersion(ApiVersion.V60x))
         };
 
         public SettingsForm()
@@ -110,9 +112,9 @@ namespace Redmine.Client
                 Settings.Default.UpdateSetting("RedminePassword", RedminePasswordTextBox.Text);
                 Settings.Default.UpdateSetting("RedmineAuthentication", AuthenticationCheckBox.Checked);
                 if (radioButtonJson.Checked)
-                    Settings.Default.UpdateSetting("CommunicationType", Redmine.Net.Api.MimeFormat.Json);
+                    Settings.Default.UpdateSetting("CommunicationType", SerializationType.Json);
                 else
-                    Settings.Default.UpdateSetting("CommunicationType", Redmine.Net.Api.MimeFormat.Xml);
+                    Settings.Default.UpdateSetting("CommunicationType", SerializationType.Xml);
 
                 Settings.Default.UpdateSetting("CheckForUpdates", CheckForUpdatesCheckBox.Checked);
                 Settings.Default.UpdateSetting("MinimizeToSystemTray", MinimizeToSystemTrayCheckBox.Checked);
@@ -151,8 +153,8 @@ namespace Redmine.Client
             AuthenticationCheckBox.Checked = Settings.Default.RedmineAuthentication;
             RedmineUsernameTextBox.Text = Settings.Default.RedmineUser;
             RedminePasswordTextBox.Text = Settings.Default.RedminePassword;
-            radioButtonJson.Checked = Settings.Default.CommunicationType == Net.Api.MimeFormat.Json;
-            radioButtonXml.Checked = Settings.Default.CommunicationType != Net.Api.MimeFormat.Json;
+            radioButtonJson.Checked = Settings.Default.CommunicationType == SerializationType.Json;
+            radioButtonXml.Checked = Settings.Default.CommunicationType != SerializationType.Json;
 
             MinimizeToSystemTrayCheckBox.Checked = Settings.Default.MinimizeToSystemTray;
             MinimizeOnStartTimerCheckBox.Checked = Settings.Default.MinimizeOnStartTimer;
@@ -174,9 +176,9 @@ namespace Redmine.Client
             OnlyShowMyProjects.Checked = Settings.Default.OnlyMyProjects;
         }
 
-        private Redmine.Net.Api.MimeFormat GetSelectedMimeFormat()
+        private SerializationType GetSelectedMimeFormat()
         {
-            return radioButtonXml.Checked ? Redmine.Net.Api.MimeFormat.Xml : Net.Api.MimeFormat.Json;
+            return radioButtonXml.Checked ? SerializationType.Xml : SerializationType.Json;
         }
 
         private void AuthenticationCheckBox_CheckedChanged(object sender, EventArgs e)
@@ -224,9 +226,9 @@ namespace Redmine.Client
             {
                 Redmine.Net.Api.RedmineManager manager;
                 if (AuthenticationCheckBox.Checked)
-                    manager = new Redmine.Net.Api.RedmineManager(RedmineBaseUrlTextBox.Text, RedmineUsernameTextBox.Text, RedminePasswordTextBox.Text, GetSelectedMimeFormat());
+                    manager = ClientExtensionMethods.CreateManager(RedmineBaseUrlTextBox.Text, RedmineUsernameTextBox.Text, RedminePasswordTextBox.Text, GetSelectedMimeFormat());
                 else
-                    manager = new Redmine.Net.Api.RedmineManager(RedmineBaseUrlTextBox.Text, GetSelectedMimeFormat());
+                    manager = ClientExtensionMethods.CreateManager(RedmineBaseUrlTextBox.Text, null, null, GetSelectedMimeFormat());
                 User newCurrentUser = manager.GetCurrentUser();
                 MessageBox.Show(Lang.ConnectionTestOK_Text, Lang.ConnectionTestOK_Title, MessageBoxButtons.OK, MessageBoxIcon.Information);
             }
@@ -252,11 +254,11 @@ namespace Redmine.Client
                 Redmine.Net.Api.RedmineManager manager;
                 CloseStatuses = new List<IssueStatus>();
                 if (AuthenticationCheckBox.Checked)
-                    manager = new Redmine.Net.Api.RedmineManager(RedmineBaseUrlTextBox.Text, RedmineUsernameTextBox.Text, RedminePasswordTextBox.Text, GetSelectedMimeFormat());
+                    manager = ClientExtensionMethods.CreateManager(RedmineBaseUrlTextBox.Text, RedmineUsernameTextBox.Text, RedminePasswordTextBox.Text, GetSelectedMimeFormat());
                 else
-                    manager = new Redmine.Net.Api.RedmineManager(RedmineBaseUrlTextBox.Text, GetSelectedMimeFormat());
+                    manager = ClientExtensionMethods.CreateManager(RedmineBaseUrlTextBox.Text, null, null, GetSelectedMimeFormat());
 
-                CloseStatuses = manager.GetObjects<IssueStatus>();
+                CloseStatuses = manager.Get<IssueStatus>();
                 ComboBoxCloseStatus.DataSource = CloseStatuses;
                 ComboBoxCloseStatus.ValueMember = "Id";
                 ComboBoxCloseStatus.DisplayMember = "Name";
@@ -297,12 +299,12 @@ namespace Redmine.Client
                 NewStatuses = new List<IssueStatus>();
                 InProgressStatuses = new List<IssueStatus>();
                 if (AuthenticationCheckBox.Checked)
-                    manager = new Redmine.Net.Api.RedmineManager(RedmineBaseUrlTextBox.Text, RedmineUsernameTextBox.Text, RedminePasswordTextBox.Text, GetSelectedMimeFormat());
+                    manager = ClientExtensionMethods.CreateManager(RedmineBaseUrlTextBox.Text, RedmineUsernameTextBox.Text, RedminePasswordTextBox.Text, GetSelectedMimeFormat());
                 else
-                    manager = new Redmine.Net.Api.RedmineManager(RedmineBaseUrlTextBox.Text, GetSelectedMimeFormat());
+                    manager = ClientExtensionMethods.CreateManager(RedmineBaseUrlTextBox.Text, null, null, GetSelectedMimeFormat());
 
                 NameValueCollection parameters = new NameValueCollection { { "is_closed", "false" } };
-                foreach (IssueStatus status in manager.GetObjects<IssueStatus>(parameters))
+                foreach (IssueStatus status in manager.Get<IssueStatus>(parameters.ToOptions()))
                 {
                     if (!status.IsClosed)
                     {

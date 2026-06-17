@@ -30,11 +30,11 @@ namespace Redmine.Client
 
         public ProjectMember()
         {
-            this.member = new ProjectMembership { User = new IdentifiableName { Id = 0, Name = "" } };
+            this.member = new ProjectMembership { User = ClientExtensionMethods.Named(0, "") };
         }
         public ProjectMember(User user)
         {
-            this.member = new ProjectMembership { User = new IdentifiableName { Id = user.Id, Name = user.CompleteName() } };
+            this.member = new ProjectMembership { User = ClientExtensionMethods.Named(user.Id, user.CompleteName()) };
         }
         public ProjectMember(ProjectMembership projectMember)
         {

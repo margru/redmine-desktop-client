@@ -75,7 +75,16 @@ namespace Redmine.Client
     {
         private static string FilePath
         {
-            get { return Path.Combine(Application.CommonAppDataPath, "TimerState.txt"); }
+            get
+            {
+                // Application.CommonAppDataPath ends with the assembly version, which would orphan
+                // the timer on every version bump (the new build looks in a fresh version folder).
+                // Store it one level up - the version-independent product folder - so the elapsed
+                // time survives upgrades.
+                string versioned = Application.CommonAppDataPath;
+                string parent = Path.GetDirectoryName(versioned);
+                return Path.Combine(string.IsNullOrEmpty(parent) ? versioned : parent, "TimerState.txt");
+            }
         }
 
         public static void Save(bool ticking, int ticks)
@@ -128,16 +137,20 @@ namespace Redmine.Client
         [STAThread]
         static void Main()
         {
-            // Must be set before the first HTTP request creates the host's ServicePoint,
-            // otherwise the parallel issue-page fetch is throttled to the default 2
-            // concurrent connections per host. See MainFormData.GetIssuesParallel.
-            System.Net.ServicePointManager.DefaultConnectionLimit = 20;
             // Recover a corrupt settings file before the first setting is read (in the form ctor).
             ConfigProtection.RepairIfCorrupt();
             try
             {
                 AppDomain.CurrentDomain.UnhandledException += new
                     UnhandledExceptionEventHandler(CurrentDomain_UnhandledException);
+                // System DPI awareness. Per-Monitor-V2 was tried but WinForms could not reliably
+                // re-scale this form's heavy absolute/runtime layout when dragged between monitors
+                // with different scale factors - the layout broke and stayed broken. System-aware
+                // renders crisply at the primary monitor's DPI with a stable layout (Windows
+                // bitmap-fits it on other monitors). Must run before any window is created. (The
+                // modern Redmine API uses HttpClient, whose default per-server connection limit is
+                // unlimited, so the old ServicePointManager throttling workaround is gone.)
+                Application.SetHighDpiMode(HighDpiMode.SystemAware);
                 Application.EnableVisualStyles();
                 Application.SetCompatibleTextRenderingDefault(false);
             }

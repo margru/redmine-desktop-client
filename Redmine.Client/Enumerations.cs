@@ -10,6 +10,8 @@ using System.Xml.Schema;
 using System.Xml.Serialization;
 using System.Windows.Forms;
 using Redmine.Net.Api.Extensions;
+// Redmine.Net.Api.Types now also defines a File type; disambiguate the BCL one we use here.
+using File = System.IO.File;
 
 namespace Redmine.Client
 {
@@ -32,7 +34,7 @@ namespace Redmine.Client
 
             public IdentifiableName ToIdentifiableName()
             {
-                return new IdentifiableName() { Id = this.Id, Name = this.Name };
+                return ClientExtensionMethods.Named(this.Id, this.Name);
             }
 
             #region Implementation of IXmlSerializable

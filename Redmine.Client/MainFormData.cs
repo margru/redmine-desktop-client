@@ -3,9 +3,13 @@ using System.Collections.Generic;
 using System.Collections.Specialized;
 using System.IO;
 using System.Text;
+using System.Xml;
 using System.Xml.Serialization;
 using Redmine.Net.Api.Types;
 using Redmine.Net.Api;
+using Redmine.Net.Api.Serialization;
+// Redmine.Net.Api.Types now also defines a File type; disambiguate the BCL one we use here.
+using File = System.IO.File;
 
 namespace Redmine.Client
 {
@@ -79,19 +83,68 @@ namespace Redmine.Client
                 string file = Path.Combine(Dir, key + ".xml");
                 if (!File.Exists(file))
                     return null;
+                List<CachedIssue> cached;
                 using (FileStream fs = File.OpenRead(file))
-                {
-                    List<CachedIssue> cached = (List<CachedIssue>)Serializer.Deserialize(fs);
-                    List<Issue> result = new List<Issue>(cached.Count);
-                    foreach (CachedIssue ci in cached)
-                        result.Add(ToIssue(ci));
-                    return result;
-                }
+                    cached = (List<CachedIssue>)Serializer.Deserialize(fs);
+
+                // The modern Issue has read-only Id, so we can't populate one by hand. Instead
+                // rebuild the Redmine-format XML the server would have sent and let Issue's own
+                // (public, IXmlSerializable) ReadXml reconstruct a fully-populated Issue. The
+                // library's serializer types are internal, so we drive ReadXml directly.
+                List<Issue> result = new List<Issue>(cached.Count);
+                foreach (CachedIssue ci in cached)
+                    result.Add(FromXml(ToXml(ci)));
+                return result;
             }
             catch
             {
-                return null; // a broken/old cache file is not worth crashing over
+                return null; // a broken/old/incompatible cache file is not worth crashing over
             }
+        }
+
+        /// <summary>Reconstructs an immutable Issue from &lt;issue&gt; XML via its public ReadXml.</summary>
+        private static Issue FromXml(string xml)
+        {
+            Issue issue = new Issue();
+            using (XmlReader reader = XmlReader.Create(new StringReader(xml)))
+            {
+                reader.MoveToContent();   // position on <issue>; ReadXml does reader.Read() to enter
+                issue.ReadXml(reader);
+            }
+            return issue;
+        }
+
+        /// <summary>Renders a cached issue as the &lt;issue&gt; XML the library's Issue.ReadXml expects.</summary>
+        private static string ToXml(CachedIssue c)
+        {
+            StringBuilder sb = new StringBuilder();
+            using (XmlWriter w = XmlWriter.Create(sb, new XmlWriterSettings { OmitXmlDeclaration = true }))
+            {
+                w.WriteStartElement("issue");
+                w.WriteElementString("id", c.Id.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                w.WriteElementString("subject", c.Subject ?? "");
+                WriteRef(w, "project", c.Project);
+                WriteRef(w, "tracker", c.Tracker);
+                WriteRef(w, "status", c.Status);
+                WriteRef(w, "priority", c.Priority);
+                WriteRef(w, "category", c.Category);
+                WriteRef(w, "assigned_to", c.AssignedTo);
+                WriteRef(w, "fixed_version", c.FixedVersion);
+                WriteRef(w, "parent", c.ParentIssue);
+                w.WriteEndElement();
+            }
+            return sb.ToString();
+        }
+
+        private static void WriteRef(XmlWriter w, string element, CachedRef r)
+        {
+            if (r == null)
+                return;
+            w.WriteStartElement(element);
+            w.WriteAttributeString("id", r.Id.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            if (r.Name != null)
+                w.WriteAttributeString("name", r.Name);
+            w.WriteEndElement();
         }
 
         public static void Save(string key, IEnumerable<Issue> issues)
@@ -113,11 +166,6 @@ namespace Redmine.Client
             return n == null ? null : new CachedRef { Id = n.Id, Name = n.Name };
         }
 
-        private static IdentifiableName Name(CachedRef r)
-        {
-            return r == null ? null : new IdentifiableName { Id = r.Id, Name = r.Name };
-        }
-
         private static CachedIssue ToCached(Issue i)
         {
             return new CachedIssue
@@ -135,37 +183,29 @@ namespace Redmine.Client
             };
         }
 
-        private static Issue ToIssue(CachedIssue c)
-        {
-            return new Issue
-            {
-                Id = c.Id,
-                Subject = c.Subject,
-                Project = Name(c.Project),
-                Tracker = Name(c.Tracker),
-                Status = Name(c.Status),
-                Priority = Name(c.Priority),
-                Category = Name(c.Category),
-                AssignedTo = Name(c.AssignedTo),
-                FixedVersion = Name(c.FixedVersion),
-                ParentIssue = Name(c.ParentIssue),
-            };
-        }
     }
 
-    public class ClientProject : Project
+    // Standalone wrapper (no longer derives from Project, which the modern API sealed). It only
+    // needs to expose what the project combo binds to: the Id (ValueMember) and DisplayName
+    // (DisplayMember). Name/Parent are kept solely to build DisplayName.
+    public class ClientProject
     {
+        public int Id { get; private set; }
+        public string Name { get; private set; }
+        public IdentifiableName Parent { get; private set; }
+
         public ClientProject(Project p) {
             this.Id = p.Id;
             this.Name = p.Name;
-            this.Identifier = p.Identifier;
-            this.Description = p.Description;
             this.Parent = p.Parent;
-            this.HomePage = p.HomePage;
-            this.CreatedOn = p.CreatedOn;
-            this.UpdatedOn = p.UpdatedOn;
-            this.Trackers = p.Trackers;
-            this.CustomFields = p.CustomFields;
+        }
+
+        // For synthetic entries (e.g. the "show all projects" pseudo-project) that have no
+        // backing server Project. The modern API's Project is sealed and its Id read-only, so we
+        // can't build a throwaway Project just to wrap it.
+        public ClientProject(int id, string name) {
+            this.Id = id;
+            this.Name = name;
         }
 
         public string DisplayName {
@@ -255,7 +295,7 @@ namespace Redmine.Client
         {
             ProjectId = projectId;
             Projects = new List<ClientProject>();
-            Projects.Add(new ClientProject(new Project { Id = -1, Name = Languages.Lang.ShowAllIssues }));
+            Projects.Add(new ClientProject(-1, Languages.Lang.ShowAllIssues));
             foreach(Project p in projects)
             {
                 Projects.Add(new ClientProject(p));
@@ -266,7 +306,7 @@ namespace Redmine.Client
                 {
                     try
                     {
-                        List<Tracker> allTrackers = (List<Tracker>)RedmineClientForm.redmine.GetObjects<Tracker>();
+                        List<Tracker> allTrackers = (List<Tracker>)RedmineClientForm.redmine.Get<Tracker>();
                         Trackers = allTrackers.ConvertAll(new Converter<Tracker, ProjectTracker>(TrackerToProjectTracker));
                     }
                     catch (Exception e)
@@ -281,7 +321,7 @@ namespace Redmine.Client
                     try
                     {
                         NameValueCollection projectParameters = new NameValueCollection { { "include", "trackers" } };
-                        Project project = RedmineClientForm.redmine.GetObject<Project>(projectId.ToString(), projectParameters);
+                        Project project = RedmineClientForm.redmine.Get<Project>(projectId.ToString(), projectParameters.ToOptions());
                         Trackers = new List<ProjectTracker>(project.Trackers);
                     }
                     catch (Exception e)
@@ -291,8 +331,8 @@ namespace Redmine.Client
 
                     try
                     {
-                        Categories = new List<IssueCategory>(RedmineClientForm.redmine.GetObjects<IssueCategory>(InitParameters()));
-                        Categories.Insert(0, new IssueCategory { Id = 0, Name = "" });
+                        Categories = new List<IssueCategory>(RedmineClientForm.redmine.Get<IssueCategory>(InitParameters().ToOptions()));
+                        Categories.Insert(0, new IssueCategory { Name = "" });
                     }
                     catch (Exception e)
                     {
@@ -301,22 +341,22 @@ namespace Redmine.Client
 
                     try
                     {
-                        Versions = (List<Redmine.Net.Api.Types.Version>)RedmineClientForm.redmine.GetObjects<Redmine.Net.Api.Types.Version>(InitParameters());
-                        Versions.Insert(0, new Redmine.Net.Api.Types.Version { Id = 0, Name = "" });
+                        Versions = (List<Redmine.Net.Api.Types.Version>)RedmineClientForm.redmine.Get<Redmine.Net.Api.Types.Version>(InitParameters().ToOptions());
+                        Versions.Insert(0, new Redmine.Net.Api.Types.Version { Name = "" });
                     }
                     catch (Exception e)
                     {
                         throw new LoadException(Languages.Lang.BgWork_LoadVersions, e);
                     }
                 }
-                Trackers.Insert(0, new ProjectTracker { Id = 0, Name = "" });
+                Trackers.Insert(0, new ProjectTracker { Name = "" });
 
                 try
                 {
-                    Statuses = new List<IssueStatus>(RedmineClientForm.redmine.GetObjects<IssueStatus>(InitParameters()));
-                    Statuses.Insert(0, new IssueStatus { Id = 0, Name = Languages.Lang.AllOpenIssues });
-                    Statuses.Add(new IssueStatus { Id = -1, Name = Languages.Lang.AllClosedIssues });
-                    Statuses.Add(new IssueStatus { Id = -2, Name = Languages.Lang.AllOpenAndClosedIssues });
+                    Statuses = new List<IssueStatus>(RedmineClientForm.redmine.Get<IssueStatus>(InitParameters().ToOptions()));
+                    Statuses.Insert(0, new IssueStatus { Name = Languages.Lang.AllOpenIssues });
+                    Statuses.Add(ClientExtensionMethods.NamedRef<IssueStatus>(-1, Languages.Lang.AllClosedIssues));
+                    Statuses.Add(ClientExtensionMethods.NamedRef<IssueStatus>(-2, Languages.Lang.AllOpenAndClosedIssues));
                 }
                 catch (Exception e)
                 {
@@ -328,12 +368,12 @@ namespace Redmine.Client
                     if (RedmineClientForm.RedmineVersion >= ApiVersion.V14x
                         && projectId > 0)
                     {
-                        List<ProjectMembership> projectMembers = (List<ProjectMembership>)RedmineClientForm.redmine.GetObjects<ProjectMembership>(InitParameters());
+                        List<ProjectMembership> projectMembers = (List<ProjectMembership>)RedmineClientForm.redmine.Get<ProjectMembership>(InitParameters().ToOptions());
                         ProjectMembers = projectMembers.ConvertAll(new Converter<ProjectMembership, ProjectMember>(ProjectMember.MembershipToMember));
                     }
                     else
                     {
-                        List<User> allUsers = (List<User>)RedmineClientForm.redmine.GetObjects<User>();
+                        List<User> allUsers = (List<User>)RedmineClientForm.redmine.Get<User>();
                         ProjectMembers = allUsers.ConvertAll(new Converter<User, ProjectMember>(UserToProjectMember));
                     }
                     ProjectMembers.Insert(0, new ProjectMember());
@@ -348,10 +388,10 @@ namespace Redmine.Client
                 {
                     if (RedmineClientForm.RedmineVersion >= ApiVersion.V22x)
                     {
-                        Enumerations.UpdateIssuePriorities(RedmineClientForm.redmine.GetObjects<IssuePriority>());
+                        Enumerations.UpdateIssuePriorities(RedmineClientForm.redmine.Get<IssuePriority>());
                         Enumerations.SaveIssuePriorities();
 
-                        Enumerations.UpdateActivities(RedmineClientForm.redmine.GetObjects<TimeEntryActivity>());
+                        Enumerations.UpdateActivities(RedmineClientForm.redmine.Get<TimeEntryActivity>());
                         Enumerations.SaveActivities();
                     }
                     IssuePriorities = new List<Enumerations.EnumerationItem>(Enumerations.IssuePriorities);
@@ -369,7 +409,7 @@ namespace Redmine.Client
                 {
                     if (RedmineClientForm.RedmineVersion >= ApiVersion.V24x)
                     {
-                        CustomFields = RedmineClientForm.redmine.GetObjects<CustomField>();
+                        CustomFields = RedmineClientForm.redmine.Get<CustomField>();
                     }
                 }
                 catch (Exception e)
@@ -465,11 +505,11 @@ namespace Redmine.Client
             NameValueCollection firstParams = new NameValueCollection(baseParameters);
             firstParams.Set(RedmineKeys.LIMIT, pageSize.ToString());
             firstParams.Set(RedmineKeys.OFFSET, "0");
-            PaginatedObjects<Issue> first = RedmineClientForm.redmine.GetPaginatedObjects<Issue>(firstParams);
+            PagedResults<Issue> first = RedmineClientForm.redmine.GetPaginated<Issue>(firstParams.ToOptions());
 
-            List<Issue> result = new List<Issue>(first.Objects);
-            int total = first.TotalCount;
-            if (total <= pageSize || first.Objects.Count == 0)
+            List<Issue> result = new List<Issue>(first.Items);
+            int total = first.TotalItems;
+            if (total <= pageSize || result.Count == 0)
                 return result;
 
             // Offsets of the pages still to fetch: pageSize, 2*pageSize, ... < total.
@@ -488,7 +528,7 @@ namespace Redmine.Client
                     NameValueCollection p = new NameValueCollection(baseParameters);
                     p.Set(RedmineKeys.LIMIT, pageSize.ToString());
                     p.Set(RedmineKeys.OFFSET, offsets[i].ToString());
-                    pages[i] = RedmineClientForm.redmine.GetPaginatedObjects<Issue>(p).Objects;
+                    pages[i] = new List<Issue>(RedmineClientForm.redmine.GetPaginated<Issue>(p.ToOptions()).Items);
                 });
 
             foreach (List<Issue> page in pages)
@@ -509,7 +549,7 @@ namespace Redmine.Client
 
         private static ProjectTracker TrackerToProjectTracker(Tracker tracker)
         {
-            return new ProjectTracker { Id = tracker.Id, Name = tracker.Name };
+            return ClientExtensionMethods.NamedRef<ProjectTracker>(tracker.Id, tracker.Name);
         }
 
         private static ProjectMember UserToProjectMember(User user)

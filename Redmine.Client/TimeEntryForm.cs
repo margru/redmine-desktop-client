@@ -18,6 +18,9 @@ namespace Redmine.Client
             New,
             Edit,
         };
+        // Runtime data, not a designer property; keep the WinForms designer from trying to
+        // serialize it (analyzer WFO1000).
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
         public TimeEntry CurTimeEntry { get; set; }
         private Issue issue;
         private IList<ProjectMember> projectMembers;
@@ -93,17 +96,18 @@ namespace Redmine.Client
         private void BtnOKButton_Click(object sender, EventArgs e)
         {
             CurTimeEntry.SpentOn = datePickerSpentOn.Value;
-            CurTimeEntry.Issue = new IdentifiableName() { Id = issue.Id };
-            CurTimeEntry.User = new IdentifiableName() { Id = ((ProjectMember)comboBoxByUser.SelectedItem).Id };
+            CurTimeEntry.Issue = ClientExtensionMethods.Named(issue.Id, null);
+            // TimeEntry.User is read-only in the modern API; entries are logged for the
+            // authenticated user (logging on behalf of another user was dropped).
             CurTimeEntry.Activity = ((Enumerations.EnumerationItem)comboBoxActivity.SelectedItem).ToIdentifiableName();
             CurTimeEntry.Hours = decimal.Parse(textBoxSpentHours.Text, Lang.Culture);
             CurTimeEntry.Comments = textBoxComment.Text;
             try
             {
                 if (type == eFormType.New)
-                    RedmineClientForm.redmine.CreateObject(CurTimeEntry);
+                    RedmineClientForm.redmine.Create(CurTimeEntry);
                 else
-                    RedmineClientForm.redmine.UpdateObject(CurTimeEntry.Id.ToString(), CurTimeEntry);
+                    RedmineClientForm.redmine.Update(CurTimeEntry.Id.ToString(), CurTimeEntry);
                 this.DialogResult = DialogResult.OK;
                 this.Close();
             }
