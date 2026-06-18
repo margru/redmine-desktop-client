@@ -84,6 +84,16 @@ namespace Redmine.Client
         private const int RelationsHeight = 100;
         private const int ParentHeight = 24;
 
+        // The Children/Parent/Relations sections grow the form (and shove the buttons down) by the
+        // above design-unit amounts. The form is font-scaled (AutoScaleMode.Font), so on a high-DPI
+        // monitor the labels/grids scale up but raw constants do not - the Parent label ended up
+        // behind the buttons. Scale every delta to the form's actual DPI so the room created matches
+        // the scaled controls. (Grow and shrink must use the same scaled value; DeviceDpi is stable
+        // for the form's lifetime under System-aware DPI, so they do.)
+        private int ChildrenHeightDpi { get { return LogicalToDeviceUnits(ChildrenHeight); } }
+        private int RelationsHeightDpi { get { return LogicalToDeviceUnits(RelationsHeight); } }
+        private int ParentHeightDpi { get { return LogicalToDeviceUnits(ParentHeight); } }
+
         public IssueForm(Project project)
         {
             this.project = project;
@@ -351,18 +361,21 @@ namespace Redmine.Client
         {
             if (DataGridViewChildren != null)
             {
-                MinimumSize = new System.Drawing.Size(MinimumSize.Width, MinimumSize.Height - ChildrenHeight);
-                Size = new System.Drawing.Size(Size.Width, Size.Height - ChildrenHeight);
+                int childrenHeight = ChildrenHeightDpi;
+                MinimumSize = new System.Drawing.Size(MinimumSize.Width, MinimumSize.Height - childrenHeight);
+                Size = new System.Drawing.Size(Size.Width, Size.Height - childrenHeight);
             }
             if (LabelParent != null)
             {
-                MinimumSize = new System.Drawing.Size(MinimumSize.Width, MinimumSize.Height - ParentHeight);
-                Size = new System.Drawing.Size(Size.Width, Size.Height - ParentHeight);
+                int parentHeight = ParentHeightDpi;
+                MinimumSize = new System.Drawing.Size(MinimumSize.Width, MinimumSize.Height - parentHeight);
+                Size = new System.Drawing.Size(Size.Width, Size.Height - parentHeight);
             }
             if (DataGridViewRelations != null)
             {
-                MinimumSize = new System.Drawing.Size(MinimumSize.Width, MinimumSize.Height - RelationsHeight);
-                Size = new System.Drawing.Size(Size.Width, Size.Height - RelationsHeight);
+                int relationsHeight = RelationsHeightDpi;
+                MinimumSize = new System.Drawing.Size(MinimumSize.Width, MinimumSize.Height - relationsHeight);
+                Size = new System.Drawing.Size(Size.Width, Size.Height - relationsHeight);
             }
         }
 
@@ -580,12 +593,12 @@ namespace Redmine.Client
                     DataGridViewChildren.AllowUserToAddRows = false;
                     DataGridViewChildren.AllowUserToDeleteRows = false;
                     DataGridViewChildren.ColumnHeadersHeightSizeMode = System.Windows.Forms.DataGridViewColumnHeadersHeightSizeMode.AutoSize;
-                    DataGridViewChildren.Location = new System.Drawing.Point(TextBoxDescription.Location.X, linkEditInRedmine.Location.Y + 19);
+                    DataGridViewChildren.Location = new System.Drawing.Point(TextBoxDescription.Location.X, linkEditInRedmine.Location.Y + LogicalToDeviceUnits(19));
                     DataGridViewChildren.MultiSelect = false;
                     DataGridViewChildren.Name = "DataGridViewChildren";
                     DataGridViewChildren.ReadOnly = true;
                     DataGridViewChildren.SelectionMode = System.Windows.Forms.DataGridViewSelectionMode.FullRowSelect;
-                    DataGridViewChildren.Size = new System.Drawing.Size(TextBoxDescription.Width, 69);
+                    DataGridViewChildren.Size = new System.Drawing.Size(TextBoxDescription.Width, LogicalToDeviceUnits(69));
                     DataGridViewChildren.CellFormatting += new System.Windows.Forms.DataGridViewCellFormattingEventHandler(this.DataGridViewChildren_CellFormatting);
                     DataGridViewChildren.TabIndex = 26;
                     DataGridViewChildren.ColumnHeadersHeightSizeMode = System.Windows.Forms.DataGridViewColumnHeadersHeightSizeMode.AutoSize;
@@ -612,12 +625,13 @@ namespace Redmine.Client
                     DataGridViewChildren.Columns["Subject"].AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill;
                     SuspendLayout();
                     // first set size, then alter minimum size; otherwise dialog is expanded twice.
-                    Size = new System.Drawing.Size(Size.Width, Size.Height + ChildrenHeight);
-                    MinimumSize = new System.Drawing.Size(MinimumSize.Width, MinimumSize.Height + ChildrenHeight);
-                    linkEditInRedmine.MoveControl(0, ChildrenHeight);
-                    BtnCancelButton.MoveControl(0, ChildrenHeight);
-                    BtnCloseButton.MoveControl(0, ChildrenHeight);
-                    BtnSaveButton.MoveControl(0, ChildrenHeight);
+                    int childrenHeight = ChildrenHeightDpi;
+                    Size = new System.Drawing.Size(Size.Width, Size.Height + childrenHeight);
+                    MinimumSize = new System.Drawing.Size(MinimumSize.Width, MinimumSize.Height + childrenHeight);
+                    linkEditInRedmine.MoveControl(0, childrenHeight);
+                    BtnCancelButton.MoveControl(0, childrenHeight);
+                    BtnCloseButton.MoveControl(0, childrenHeight);
+                    BtnSaveButton.MoveControl(0, childrenHeight);
                     ResumeLayout(false);
                 }
 
@@ -637,12 +651,13 @@ namespace Redmine.Client
                     Controls.Add(LabelParent);
                     SuspendLayout();
                     // first set size, then alter minimum size; otherwise dialog is expanded twice.
-                    Size = new System.Drawing.Size(Size.Width, Size.Height + ParentHeight);
-                    MinimumSize = new System.Drawing.Size(MinimumSize.Width, MinimumSize.Height + ParentHeight);
-                    linkEditInRedmine.MoveControl(0, ParentHeight);
-                    BtnCancelButton.MoveControl(0, ParentHeight);
-                    BtnCloseButton.MoveControl(0, ParentHeight);
-                    BtnSaveButton.MoveControl(0, ParentHeight);
+                    int parentHeight = ParentHeightDpi;
+                    Size = new System.Drawing.Size(Size.Width, Size.Height + parentHeight);
+                    MinimumSize = new System.Drawing.Size(MinimumSize.Width, MinimumSize.Height + parentHeight);
+                    linkEditInRedmine.MoveControl(0, parentHeight);
+                    BtnCancelButton.MoveControl(0, parentHeight);
+                    BtnCloseButton.MoveControl(0, parentHeight);
+                    BtnSaveButton.MoveControl(0, parentHeight);
                     ResumeLayout(false);
                     if (Size.Width < LabelParent.Width + 30)
                         Size = new System.Drawing.Size(LabelParent.Width + 30, Size.Height);
@@ -668,12 +683,12 @@ namespace Redmine.Client
                     DataGridViewRelations.AllowUserToAddRows = false;
                     DataGridViewRelations.AllowUserToDeleteRows = false;
                     DataGridViewRelations.ColumnHeadersHeightSizeMode = System.Windows.Forms.DataGridViewColumnHeadersHeightSizeMode.AutoSize;
-                    DataGridViewRelations.Location = new System.Drawing.Point(TextBoxDescription.Location.X, linkEditInRedmine.Location.Y + 19);
+                    DataGridViewRelations.Location = new System.Drawing.Point(TextBoxDescription.Location.X, linkEditInRedmine.Location.Y + LogicalToDeviceUnits(19));
                     DataGridViewRelations.MultiSelect = false;
                     DataGridViewRelations.Name = "DataGridViewRelations";
                     DataGridViewRelations.ReadOnly = true;
                     DataGridViewRelations.SelectionMode = System.Windows.Forms.DataGridViewSelectionMode.FullRowSelect;
-                    DataGridViewRelations.Size = new System.Drawing.Size(TextBoxDescription.Width, 69);
+                    DataGridViewRelations.Size = new System.Drawing.Size(TextBoxDescription.Width, LogicalToDeviceUnits(69));
                     DataGridViewRelations.CellFormatting += new System.Windows.Forms.DataGridViewCellFormattingEventHandler(this.DataGridViewRelations_CellFormatting);
                     DataGridViewRelations.TabIndex = 26;
                     DataGridViewRelations.ColumnHeadersHeightSizeMode = System.Windows.Forms.DataGridViewColumnHeadersHeightSizeMode.AutoSize;
@@ -709,12 +724,13 @@ namespace Redmine.Client
 
                     SuspendLayout();
                     // first set size, then alter minimum size; otherwise dialog is expanded twice.
-                    Size = new System.Drawing.Size(Size.Width, Size.Height + RelationsHeight);
-                    MinimumSize = new System.Drawing.Size(MinimumSize.Width, MinimumSize.Height + RelationsHeight);
-                    linkEditInRedmine.MoveControl(0, RelationsHeight);
-                    BtnCancelButton.MoveControl(0, RelationsHeight);
-                    BtnCloseButton.MoveControl(0, RelationsHeight);
-                    BtnSaveButton.MoveControl(0, RelationsHeight);
+                    int relationsHeight = RelationsHeightDpi;
+                    Size = new System.Drawing.Size(Size.Width, Size.Height + relationsHeight);
+                    MinimumSize = new System.Drawing.Size(MinimumSize.Width, MinimumSize.Height + relationsHeight);
+                    linkEditInRedmine.MoveControl(0, relationsHeight);
+                    BtnCancelButton.MoveControl(0, relationsHeight);
+                    BtnCloseButton.MoveControl(0, relationsHeight);
+                    BtnSaveButton.MoveControl(0, relationsHeight);
                     ResumeLayout(false);
                 }
             }
