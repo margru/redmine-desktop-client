@@ -52,7 +52,10 @@ namespace Redmine.Client
         {
             get
             {
-                string dir = Path.Combine(System.Windows.Forms.Application.CommonAppDataPath, "IssueCache");
+                // Segregated per server so two Redmine servers (whose project ids are unrelated)
+                // can't collide on the same cache file - see RedmineClientForm.ServerCacheToken.
+                string dir = Path.Combine(System.Windows.Forms.Application.CommonAppDataPath,
+                    RedmineClientForm.ServerCacheToken, "IssueCache");
                 Directory.CreateDirectory(dir);
                 return dir;
             }

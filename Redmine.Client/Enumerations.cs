@@ -149,9 +149,20 @@ namespace Redmine.Client
             }
         }
 
+        /// <summary>
+        /// Path of a cached enumeration list, under a per-server subfolder so different Redmine
+        /// servers keep separate priority/activity caches - see RedmineClientForm.ServerCacheToken.
+        /// </summary>
+        private static string EnumFilePath(string listName)
+        {
+            string dir = Path.Combine(Application.CommonAppDataPath, RedmineClientForm.ServerCacheToken);
+            Directory.CreateDirectory(dir);
+            return Path.Combine(dir, listName + ".xml");
+        }
+
         public static List<EnumerationItem> Load(string listName)
         {
-            string fileName = Application.CommonAppDataPath + "\\" + listName + ".xml";
+            string fileName = EnumFilePath(listName);
             FileStream f = File.OpenRead(fileName);
             List<EnumerationItem> list = new List<EnumerationItem>();
             using (var xmlReader = new XmlTextReader(f))
@@ -182,7 +193,7 @@ namespace Redmine.Client
         public static void Save(IList<EnumerationItem> list, string listName)
         {
             var xws = new XmlWriterSettings { OmitXmlDeclaration = true };
-            string fileName = Application.CommonAppDataPath + "\\" + listName + ".xml";
+            string fileName = EnumFilePath(listName);
 
             File.Delete(fileName);
             FileStream f = File.OpenWrite(fileName);

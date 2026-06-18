@@ -79,6 +79,28 @@ namespace Redmine.Client
         private string currentWorkName;
 
         public static string RedmineURL;
+
+        /// <summary>
+        /// A short, filesystem-safe token identifying the configured Redmine server, derived from
+        /// its URL. The on-disk caches (issue list, enumerations) live under a per-server subfolder
+        /// keyed on this, so pointing the client at a different server can never read or overwrite
+        /// another server's cached data (their project ids, priorities and activities are unrelated).
+        /// </summary>
+        public static string ServerCacheToken
+        {
+            get
+            {
+                string url = (RedmineURL ?? "").Trim().TrimEnd('/').ToLowerInvariant();
+                if (url.Length == 0)
+                    return "default";
+                using (var md5 = System.Security.Cryptography.MD5.Create())
+                {
+                    byte[] hash = md5.ComputeHash(System.Text.Encoding.UTF8.GetBytes(url));
+                    return "srv_" + BitConverter.ToString(hash, 0, 8).Replace("-", "").ToLowerInvariant();
+                }
+            }
+        }
+
         private bool RedmineAuthentication;
         private string RedmineUser;
         private string RedminePassword;
@@ -590,12 +612,16 @@ namespace Redmine.Client
 
         private void LoadConfig()
         {
+            // Resolve the server URL up front: the on-disk caches (enumerations, issue list) are
+            // segregated per server via ServerCacheToken, and Enumerations.LoadAll() below needs
+            // RedmineURL already set so it reads *this* server's cached enumerations.
+            Settings.Default.Reload();
+            RedmineURL = Settings.Default.RedmineURL;
+
             Enumerations.LoadAll();
 
             if (Lang.Culture == null)
                 Lang.Culture = System.Globalization.CultureInfo.CurrentUICulture;
-            Settings.Default.Reload();
-            RedmineURL = Settings.Default.RedmineURL;
             RedmineAuthentication = Settings.Default.RedmineAuthentication;
             RedmineUser = Settings.Default.RedmineUser;
             RedminePassword = Settings.Default.RedminePassword;
