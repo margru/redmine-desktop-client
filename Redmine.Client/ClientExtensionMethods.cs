@@ -76,6 +76,20 @@ namespace Redmine.Client
             return new RedmineManager(builder);
         }
 
+        /// <summary>
+        /// Opens a URL or file path with the associated application (browser, viewer, ...).
+        /// .NET (Core/5+) changed <c>ProcessStartInfo.UseShellExecute</c> to default to <c>false</c>,
+        /// so the old <c>Process.Start(url)</c> now throws "The system cannot find the file
+        /// specified". Setting UseShellExecute = true restores the shell-open behaviour.
+        /// </summary>
+        public static void ShellOpen(string target)
+        {
+            if (string.IsNullOrEmpty(target))
+                return;
+            System.Diagnostics.Process.Start(
+                new System.Diagnostics.ProcessStartInfo(target) { UseShellExecute = true });
+        }
+
         public static void WriteCollectionAsElement<T>(this XmlWriter writer, IList<T> list, string listname) where T : class
         {
             var serializer = new XmlSerializer(typeof(T));

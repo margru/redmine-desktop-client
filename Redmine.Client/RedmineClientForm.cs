@@ -59,6 +59,11 @@ namespace Redmine.Client
         // Tracking the id (rather than a bool) means a re-fill that keeps the same issue selected
         // - e.g. after a client-side filter change - stays "deliberate".
         private int userSelectedIssueId = 0;
+        // True while the issue grid is being populated/re-selected programmatically. Binding a
+        // DataSource and SetIssueSelectionTo both raise SelectionChanged with the grid as sender
+        // (so a sender-based check can't tell them from a real click), so this flag is the reliable
+        // way to keep programmatic selection from being treated as a deliberate user pick.
+        private bool populatingGrid = false;
 
         /// <summary>True when the currently-selected grid issue is the one the user deliberately
         /// picked this session (not a programmatic restore).</summary>
@@ -503,6 +508,9 @@ namespace Redmine.Client
 
         private void FillIssues(IList<Issue> Issues)
         {
+            populatingGrid = true;
+            try
+            {
             DataGridViewIssues.DataSource = Issues;
             UpdateIssueDataColumns();
             try // Very ugly trick to fix the mono crash reported in the SF.net forum
@@ -547,6 +555,11 @@ namespace Redmine.Client
             SetIssueSelectionTo(issueId);
             updating = false;
             this.Cursor = Cursors.Default;
+            }
+            finally
+            {
+                populatingGrid = false;
+            }
         }
 
         private void SaveRuntimeConfig()
@@ -1370,7 +1383,7 @@ namespace Redmine.Client
                                     Lang.NewVersionTitle, MessageBoxButtons.YesNo, MessageBoxIcon.Question) ==
                     System.Windows.Forms.DialogResult.Yes)
                 {
-                    System.Diagnostics.Process.Start(latestVersionUrl);
+                    ClientExtensionMethods.ShellOpen(latestVersionUrl);
                 }
             }
         }
@@ -1555,10 +1568,11 @@ namespace Redmine.Client
             {
                 issueId = 0;
             }
-            // Only a genuine UI-driven change (the grid raises the event, so sender is non-null)
-            // records the issue as deliberately picked. SetIssueSelectionTo restores the remembered
-            // row by calling this with a null sender, which must NOT mark it deliberate.
-            if (sender != null && issueId != 0)
+            // Only a genuine user-driven change records the issue as deliberately picked. While the
+            // grid is being populated (DataSource bind, SetIssueSelectionTo) the same event fires
+            // with the grid as sender, so the sender is useless here - the populatingGrid flag is
+            // what distinguishes a real selection from a programmatic one.
+            if (!populatingGrid && issueId != 0)
                 userSelectedIssueId = issueId;
             UpdateNotifyIconText();
         }
@@ -1567,7 +1581,9 @@ namespace Redmine.Client
         {
             if (e.RowIndex < 0)
                 return; // header / empty area, not an issue row
-            if (issueId != 0)
+            // A click on a data row is always a deliberate pick (fires even when the row is already
+            // selected, unlike SelectionChanged).
+            if (!populatingGrid && issueId != 0)
                 userSelectedIssueId = issueId;
         }
 
@@ -1604,18 +1620,30 @@ namespace Redmine.Client
 
         private void SetIssueSelectionTo(int issueId)
         {
-            if (DataGridViewIssues.Rows.Count > 0)
+            // This is a programmatic restore, not a user pick - mark the grid as populating so the
+            // resulting SelectionChanged does not arm Start/Commit. Saved/restored so it nests
+            // correctly inside FillIssues (which already sets the flag).
+            bool wasPopulating = populatingGrid;
+            populatingGrid = true;
+            try
             {
-                DataGridViewIssues.ClearSelection();
-                foreach (DataGridViewRow row in DataGridViewIssues.Rows)
+                if (DataGridViewIssues.Rows.Count > 0)
                 {
-                    if (((Issue)row.DataBoundItem).Id == issueId)
+                    DataGridViewIssues.ClearSelection();
+                    foreach (DataGridViewRow row in DataGridViewIssues.Rows)
                     {
-                        row.Selected = true;
-                        DataGridViewIssues_SelectionChanged(null, null);
-                        break;
+                        if (((Issue)row.DataBoundItem).Id == issueId)
+                        {
+                            row.Selected = true;
+                            DataGridViewIssues_SelectionChanged(null, null);
+                            break;
+                        }
                     }
                 }
+            }
+            finally
+            {
+                populatingGrid = wasPopulating;
             }
         }
 
@@ -1801,7 +1829,7 @@ namespace Redmine.Client
             try
             {
                 Issue issue = (Issue)DataGridViewIssues.SelectedRows[0].DataBoundItem;
-                System.Diagnostics.Process.Start(RedmineClientForm.RedmineURL + "/issues/" + issue.Id.ToString());
+                ClientExtensionMethods.ShellOpen(RedmineClientForm.RedmineURL + "/issues/" + issue.Id.ToString());
             }
             catch (Exception)
             {

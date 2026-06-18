@@ -880,7 +880,7 @@ namespace Redmine.Client
             this.linkEditInRedmine.LinkVisited = true;
 
             // Navigate to a URL.
-            System.Diagnostics.Process.Start(RedmineClientForm.RedmineURL + "/issues/" + issueId.ToString());
+            ClientExtensionMethods.ShellOpen(RedmineClientForm.RedmineURL + "/issues/" + issueId.ToString());
         }
 
         private void BtnViewTimeButton_Click(object sender, EventArgs e)
@@ -939,7 +939,7 @@ namespace Redmine.Client
             if (type == DialogType.New)
                 return;
             Attachment attachment = (Attachment)dataGridViewAttachments.Rows[e.RowIndex].DataBoundItem;
-            System.Diagnostics.Process.Start(attachment.ContentUrl);
+            ClientExtensionMethods.ShellOpen(attachment.ContentUrl);
         }
 
         private void dataGridViewAttachments_CellFormatting(object sender, DataGridViewCellFormattingEventArgs e)
@@ -1032,7 +1032,7 @@ namespace Redmine.Client
                 return;
 
             Attachment attachment = (Attachment)dataGridViewAttachments.SelectedRows[0].DataBoundItem;
-            System.Diagnostics.Process.Start(attachment.ContentUrl);
+            ClientExtensionMethods.ShellOpen(attachment.ContentUrl);
         }
 
         private void addNewToolStripMenuItem_Click(object sender, EventArgs e)
