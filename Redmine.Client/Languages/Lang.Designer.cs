@@ -1013,6 +1013,15 @@ namespace Redmine.Client.Languages {
                 return ResourceManager.GetString("Error_UpdateIssueFailed", resourceCulture);
             }
         }
+
+        /// <summary>
+        ///   Looks up a localized string similar to Please select the issue you want to log the time on first..
+        /// </summary>
+        internal static string Error_NoIssueSelected {
+            get {
+                return ResourceManager.GetString("Error_NoIssueSelected", resourceCulture);
+            }
+        }
         
         /// <summary>
         ///   Looks up a localized string similar to Value out of range.

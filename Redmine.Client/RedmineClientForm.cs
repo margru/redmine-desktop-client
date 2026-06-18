@@ -53,11 +53,19 @@ namespace Redmine.Client
 
         private bool ticking = false;
         private int issueId = 0;
-        // True only when the user actively picked an issue row in this session. A selection
-        // restored programmatically on load/refresh (SetIssueSelectionTo) leaves this false, so
-        // pressing Start cannot silently move a remembered issue to "In Progress" when the user
-        // never deliberately chose it.
-        private bool issueSelectedByUser = false;
+        // The id of the issue the user actively clicked/selected this session (0 = none). A
+        // selection restored programmatically on load/refresh (SetIssueSelectionTo) does NOT set
+        // this, so Start/Commit cannot silently act on a remembered issue the user never chose.
+        // Tracking the id (rather than a bool) means a re-fill that keeps the same issue selected
+        // - e.g. after a client-side filter change - stays "deliberate".
+        private int userSelectedIssueId = 0;
+
+        /// <summary>True when the currently-selected grid issue is the one the user deliberately
+        /// picked this session (not a programmatic restore).</summary>
+        private bool IssueDeliberatelySelected
+        {
+            get { return issueId != 0 && issueId == userSelectedIssueId; }
+        }
         private int projectId = 0;
         private int activityId = 0;
         internal static RedmineManager redmine;
@@ -971,7 +979,10 @@ namespace Redmine.Client
         {
             bool shouldIRestart = ticking;
 
-            if (DataGridViewIssues.SelectedRows.Count == 1 && ComboBoxActivity.SelectedItem != null && Ticks != 0)
+            // Only log time against an issue the user deliberately selected this session - never
+            // the last-used issue restored on launch. Mirrors the Start guard so time can't be
+            // committed to a surprise issue (the else branch below explains what to do).
+            if (IssueDeliberatelySelected && DataGridViewIssues.SelectedRows.Count == 1 && ComboBoxActivity.SelectedItem != null && Ticks != 0)
             {
                 Issue selectedIssue = (Issue)DataGridViewIssues.SelectedRows[0].DataBoundItem;
                 Enumerations.EnumerationItem selectedActivity = (Enumerations.EnumerationItem)ComboBoxActivity.SelectedItem;
@@ -1039,6 +1050,12 @@ namespace Redmine.Client
 				{
                     MessageBox.Show(Lang.CommitNoIssueSelected, Lang.Warning, MessageBoxButtons.OK, MessageBoxIcon.Warning);
 				}
+                else if (!IssueDeliberatelySelected)
+                {
+                    // A row is highlighted (e.g. the last-used issue restored on launch) but the
+                    // user did not deliberately pick it - ask them to choose explicitly.
+                    MessageBox.Show(Lang.Error_NoIssueSelected, Lang.Warning, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                }
                 else if (ComboBoxActivity.SelectedItem == null)
                 {
                     MessageBox.Show(Lang.CommitNoActivitySelected, Lang.Warning, MessageBoxButtons.OK, MessageBoxIcon.Warning);
@@ -1471,7 +1488,7 @@ namespace Redmine.Client
             // Never change the status of an issue the user did not deliberately select this
             // session (e.g. the last-used issue restored on startup). Without this, pressing Start
             // right after launch would silently move that remembered issue to "In Progress".
-            if (!issueSelectedByUser)
+            if (!IssueDeliberatelySelected)
                 return;
 
             if (Settings.Default.NewStatus == 0 || Settings.Default.InProgressStatus == 0)
@@ -1539,9 +1556,10 @@ namespace Redmine.Client
                 issueId = 0;
             }
             // Only a genuine UI-driven change (the grid raises the event, so sender is non-null)
-            // counts as deliberate. SetIssueSelectionTo restores the remembered row by calling this
-            // with a null sender, which must NOT arm the auto status-change.
-            issueSelectedByUser = sender != null && issueId != 0;
+            // records the issue as deliberately picked. SetIssueSelectionTo restores the remembered
+            // row by calling this with a null sender, which must NOT mark it deliberate.
+            if (sender != null && issueId != 0)
+                userSelectedIssueId = issueId;
             UpdateNotifyIconText();
         }
 
@@ -1549,7 +1567,8 @@ namespace Redmine.Client
         {
             if (e.RowIndex < 0)
                 return; // header / empty area, not an issue row
-            issueSelectedByUser = issueId != 0;
+            if (issueId != 0)
+                userSelectedIssueId = issueId;
         }
 
         /// <summary>

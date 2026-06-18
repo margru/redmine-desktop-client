@@ -272,6 +272,9 @@
     <value>Aktualizace úkolu selhala; Odpověď serveru: {0}</value>
     <comment>{0} exception message</comment>
   </data>
+  <data name="Error_NoIssueSelected" xml:space="preserve">
+    <value>Nejprve vyberte úkol, na který chcete čas zapsat.</value>
+  </data>
   <data name="labelAssignedTo" xml:space="preserve">
     <value>Přiřazeno</value>
   </data>

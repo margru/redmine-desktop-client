@@ -272,6 +272,9 @@
     <value>Updating the issue failed; The server responded: {0}</value>
     <comment>{0} exception message</comment>
   </data>
+  <data name="Error_NoIssueSelected" xml:space="preserve">
+    <value>Please select the issue you want to log the time on first.</value>
+  </data>
   <data name="labelAssignedTo" xml:space="preserve">
     <value>Assigned To</value>
   </data>
