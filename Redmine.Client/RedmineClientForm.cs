@@ -53,6 +53,11 @@ namespace Redmine.Client
 
         private bool ticking = false;
         private int issueId = 0;
+        // True only when the user actively picked an issue row in this session. A selection
+        // restored programmatically on load/refresh (SetIssueSelectionTo) leaves this false, so
+        // pressing Start cannot silently move a remembered issue to "In Progress" when the user
+        // never deliberately chose it.
+        private bool issueSelectedByUser = false;
         private int projectId = 0;
         private int activityId = 0;
         internal static RedmineManager redmine;
@@ -113,6 +118,9 @@ namespace Redmine.Client
 			{
 				this.DataGridViewIssues.Click += new System.EventHandler(this.DataGridViewIssues_SelectionChanged);
 			}
+            // A click on a data row counts as a deliberate issue pick (fires even when the row is
+            // already selected, unlike SelectionChanged), arming the Start auto status-change.
+            this.DataGridViewIssues.CellClick += new DataGridViewCellEventHandler(this.DataGridViewIssues_CellClick);
             this.FormClosing += new FormClosingEventHandler(RedmineClientForm_FormClosing);
             SystemEvents.SessionSwitch += new SessionSwitchEventHandler(SystemEvents_SessionSwitch);
             UpdateTitle(); // show the version in the title bar from the first paint
@@ -431,6 +439,8 @@ namespace Redmine.Client
             IList<Issue> filteredIssues = new List<Issue>();
             foreach (Issue i in currentIssues)
             {
+                if (!IssueMatchesFilter(i))   // client-side dropdown filters
+                    continue;
                 bool found = true;
                 foreach (String keyword in keywords)
                 {
@@ -445,6 +455,42 @@ namespace Redmine.Client
                 filteredIssues.Add(i);
             }
             FillIssues(filteredIssues);
+        }
+
+        /// <summary>
+        /// Applies the dropdown filters (tracker, assignee, priority, target version, category,
+        /// subject) in memory against the already-loaded working set. These used to be sent to the
+        /// server as query parameters - a slow round-trip per change. The working set itself
+        /// (project + "assigned to me" + open/closed status scope) is still fetched server-side, so
+        /// these criteria only ever narrow what is already loaded.
+        /// </summary>
+        private bool IssueMatchesFilter(Issue issue)
+        {
+            Filter f = currentFilter;
+            if (f.TrackerId > 0 && (issue.Tracker == null || issue.Tracker.Id != f.TrackerId))
+                return false;
+            if (f.AssignedToId > 0 && (issue.AssignedTo == null || issue.AssignedTo.Id != f.AssignedToId))
+                return false;
+            if (f.PriorityId > 0 && (issue.Priority == null || issue.Priority.Id != f.PriorityId))
+                return false;
+            if (f.VersionId > 0 && (issue.FixedVersion == null || issue.FixedVersion.Id != f.VersionId))
+                return false;
+            if (f.CategoryId > 0 && (issue.Category == null || issue.Category.Id != f.CategoryId))
+                return false;
+            if (!String.IsNullOrEmpty(f.Subject) &&
+                (issue.Subject == null || issue.Subject.IndexOf(f.Subject, StringComparison.OrdinalIgnoreCase) < 0))
+                return false;
+            return true;
+        }
+
+        /// <summary>
+        /// A client-side filter changed: re-filter the loaded list immediately, no server call.
+        /// Suppressed while the form is being populated (the fill path filters once at the end).
+        /// </summary>
+        private void ApplyClientFilter()
+        {
+            if (!updating)
+                FilterAndFillCurrentIssues();
         }
 
         private void FillIssues(IList<Issue> Issues)
@@ -1422,6 +1468,12 @@ namespace Redmine.Client
             if (DataGridViewIssues.SelectedRows.Count != 1)
                 return;
 
+            // Never change the status of an issue the user did not deliberately select this
+            // session (e.g. the last-used issue restored on startup). Without this, pressing Start
+            // right after launch would silently move that remembered issue to "In Progress".
+            if (!issueSelectedByUser)
+                return;
+
             if (Settings.Default.NewStatus == 0 || Settings.Default.InProgressStatus == 0)
             {
                 MessageBox.Show(Lang.Error_NewOrInProgressStatusUnknown, Lang.Error, MessageBoxButtons.OK, MessageBoxIcon.Exclamation);
@@ -1486,7 +1538,18 @@ namespace Redmine.Client
             {
                 issueId = 0;
             }
+            // Only a genuine UI-driven change (the grid raises the event, so sender is non-null)
+            // counts as deliberate. SetIssueSelectionTo restores the remembered row by calling this
+            // with a null sender, which must NOT arm the auto status-change.
+            issueSelectedByUser = sender != null && issueId != 0;
             UpdateNotifyIconText();
+        }
+
+        private void DataGridViewIssues_CellClick(object sender, DataGridViewCellEventArgs e)
+        {
+            if (e.RowIndex < 0)
+                return; // header / empty area, not an issue row
+            issueSelectedByUser = issueId != 0;
         }
 
         /// <summary>
@@ -1752,7 +1815,7 @@ namespace Redmine.Client
             {
                 currentFilter.TrackerId = 0;
             }
-            FilterChanged();
+            ApplyClientFilter();
         }
 
         private void ComboBoxStatus_SelectedIndexChanged(object sender, EventArgs e)
@@ -1778,7 +1841,7 @@ namespace Redmine.Client
             {
                 currentFilter.PriorityId = 0;
             }
-            FilterChanged();
+            ApplyClientFilter();
         }
 
         private void ComboBoxAssignedTo_SelectedIndexChanged(object sender, EventArgs e)
@@ -1791,7 +1854,7 @@ namespace Redmine.Client
             {
                 currentFilter.AssignedToId = 0;
             }
-            FilterChanged();
+            ApplyClientFilter();
         }
 
         private void ComboBoxTargetVersion_SelectedIndexChanged(object sender, EventArgs e)
@@ -1804,7 +1867,7 @@ namespace Redmine.Client
             {
                 currentFilter.VersionId = 0;
             }
-            FilterChanged();
+            ApplyClientFilter();
         }
 
         private void ComboBoxCategory_SelectedIndexChanged(object sender, EventArgs e)
@@ -1817,7 +1880,7 @@ namespace Redmine.Client
             {
                 currentFilter.CategoryId = 0;
             }
-            FilterChanged();
+            ApplyClientFilter();
         }
 
         private void TextBoxSubject_TextChanged(object sender, EventArgs e)
@@ -1830,7 +1893,7 @@ namespace Redmine.Client
             {
                 currentFilter.Subject = "";
             }
-            FilterChanged();
+            ApplyClientFilter();
         }
 
         private void FilterChanged()

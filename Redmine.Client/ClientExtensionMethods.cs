@@ -26,6 +26,19 @@ namespace Redmine.Client
         }
 
         /// <summary>
+        /// The modern API's list endpoints (<c>Get&lt;T&gt;(RequestOptions)</c>) return <c>null</c>
+        /// - not an empty list - when there are no results, e.g. a project with no issue categories
+        /// or no versions. Callers that build a <c>List&lt;T&gt;</c> from the result, cast it, or
+        /// call <c>Insert</c>/<c>ConvertAll</c> on it would otherwise throw ArgumentNullException
+        /// ("Value cannot be null. Parameter 'collection'") or NullReferenceException. This
+        /// normalises null to an empty list.
+        /// </summary>
+        public static List<T> OrEmpty<T>(this List<T> source)
+        {
+            return source ?? new List<T>();
+        }
+
+        /// <summary>
         /// Creates an IdentifiableName-derived reference (IssueStatus, ProjectTracker, ...) with a
         /// given id and name. The modern API made Id read-only, so the old
         /// <c>new IssueStatus { Id = x, Name = y }</c> object initializers no longer compile;

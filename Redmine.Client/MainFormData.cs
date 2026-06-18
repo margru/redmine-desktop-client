@@ -61,19 +61,9 @@ namespace Redmine.Client
         /// <summary>A filesystem-safe key identifying the exact query whose issues are cached.</summary>
         public static string BuildKey(int projectId, bool onlyMe, Filter filter)
         {
-            return string.Format("p{0}_me{1}_t{2}_s{3}_pr{4}_v{5}_c{6}_a{7}_q{8}",
-                projectId, onlyMe ? 1 : 0, filter.TrackerId, filter.StatusId, filter.PriorityId,
-                filter.VersionId, filter.CategoryId, filter.AssignedToId, Sanitize(filter.Subject));
-        }
-
-        private static string Sanitize(string s)
-        {
-            if (string.IsNullOrEmpty(s))
-                return "";
-            StringBuilder sb = new StringBuilder(s.Length);
-            foreach (char c in s)
-                sb.Append(char.IsLetterOrDigit(c) ? c : '-');
-            return sb.ToString();
+            // Keyed only on what actually reaches the server (the working set). The other filters
+            // are client-side now, so they must not split the cache into per-filter copies.
+            return string.Format("p{0}_me{1}_s{2}", projectId, onlyMe ? 1 : 0, filter.StatusId);
         }
 
         public static IList<Issue> TryLoad(string key)
@@ -306,7 +296,7 @@ namespace Redmine.Client
                 {
                     try
                     {
-                        List<Tracker> allTrackers = (List<Tracker>)RedmineClientForm.redmine.Get<Tracker>();
+                        List<Tracker> allTrackers = RedmineClientForm.redmine.Get<Tracker>().OrEmpty();
                         Trackers = allTrackers.ConvertAll(new Converter<Tracker, ProjectTracker>(TrackerToProjectTracker));
                     }
                     catch (Exception e)
@@ -322,7 +312,9 @@ namespace Redmine.Client
                     {
                         NameValueCollection projectParameters = new NameValueCollection { { "include", "trackers" } };
                         Project project = RedmineClientForm.redmine.Get<Project>(projectId.ToString(), projectParameters.ToOptions());
-                        Trackers = new List<ProjectTracker>(project.Trackers);
+                        Trackers = project.Trackers == null
+                            ? new List<ProjectTracker>()
+                            : new List<ProjectTracker>(project.Trackers);
                     }
                     catch (Exception e)
                     {
@@ -331,7 +323,7 @@ namespace Redmine.Client
 
                     try
                     {
-                        Categories = new List<IssueCategory>(RedmineClientForm.redmine.Get<IssueCategory>(InitParameters().ToOptions()));
+                        Categories = RedmineClientForm.redmine.Get<IssueCategory>(InitParameters().ToOptions()).OrEmpty();
                         Categories.Insert(0, new IssueCategory { Name = "" });
                     }
                     catch (Exception e)
@@ -341,7 +333,7 @@ namespace Redmine.Client
 
                     try
                     {
-                        Versions = (List<Redmine.Net.Api.Types.Version>)RedmineClientForm.redmine.Get<Redmine.Net.Api.Types.Version>(InitParameters().ToOptions());
+                        Versions = RedmineClientForm.redmine.Get<Redmine.Net.Api.Types.Version>(InitParameters().ToOptions()).OrEmpty();
                         Versions.Insert(0, new Redmine.Net.Api.Types.Version { Name = "" });
                     }
                     catch (Exception e)
@@ -353,7 +345,7 @@ namespace Redmine.Client
 
                 try
                 {
-                    Statuses = new List<IssueStatus>(RedmineClientForm.redmine.Get<IssueStatus>(InitParameters().ToOptions()));
+                    Statuses = RedmineClientForm.redmine.Get<IssueStatus>(InitParameters().ToOptions()).OrEmpty();
                     Statuses.Insert(0, new IssueStatus { Name = Languages.Lang.AllOpenIssues });
                     Statuses.Add(ClientExtensionMethods.NamedRef<IssueStatus>(-1, Languages.Lang.AllClosedIssues));
                     Statuses.Add(ClientExtensionMethods.NamedRef<IssueStatus>(-2, Languages.Lang.AllOpenAndClosedIssues));
@@ -368,12 +360,12 @@ namespace Redmine.Client
                     if (RedmineClientForm.RedmineVersion >= ApiVersion.V14x
                         && projectId > 0)
                     {
-                        List<ProjectMembership> projectMembers = (List<ProjectMembership>)RedmineClientForm.redmine.Get<ProjectMembership>(InitParameters().ToOptions());
+                        List<ProjectMembership> projectMembers = RedmineClientForm.redmine.Get<ProjectMembership>(InitParameters().ToOptions()).OrEmpty();
                         ProjectMembers = projectMembers.ConvertAll(new Converter<ProjectMembership, ProjectMember>(ProjectMember.MembershipToMember));
                     }
                     else
                     {
-                        List<User> allUsers = (List<User>)RedmineClientForm.redmine.Get<User>();
+                        List<User> allUsers = RedmineClientForm.redmine.Get<User>().OrEmpty();
                         ProjectMembers = allUsers.ConvertAll(new Converter<User, ProjectMember>(UserToProjectMember));
                     }
                     ProjectMembers.Insert(0, new ProjectMember());
@@ -388,10 +380,10 @@ namespace Redmine.Client
                 {
                     if (RedmineClientForm.RedmineVersion >= ApiVersion.V22x)
                     {
-                        Enumerations.UpdateIssuePriorities(RedmineClientForm.redmine.Get<IssuePriority>());
+                        Enumerations.UpdateIssuePriorities(RedmineClientForm.redmine.Get<IssuePriority>().OrEmpty());
                         Enumerations.SaveIssuePriorities();
 
-                        Enumerations.UpdateActivities(RedmineClientForm.redmine.Get<TimeEntryActivity>());
+                        Enumerations.UpdateActivities(RedmineClientForm.redmine.Get<TimeEntryActivity>().OrEmpty());
                         Enumerations.SaveActivities();
                     }
                     IssuePriorities = new List<Enumerations.EnumerationItem>(Enumerations.IssuePriorities);
@@ -409,7 +401,7 @@ namespace Redmine.Client
                 {
                     if (RedmineClientForm.RedmineVersion >= ApiVersion.V24x)
                     {
-                        CustomFields = RedmineClientForm.redmine.Get<CustomField>();
+                        CustomFields = RedmineClientForm.redmine.Get<CustomField>().OrEmpty();
                     }
                 }
                 catch (Exception e)
@@ -436,17 +428,17 @@ namespace Redmine.Client
         /// </summary>
         private static NameValueCollection BuildIssueParameters(int projectId, bool onlyMe, Filter filter)
         {
+            // Only the criteria that define the working set are sent to the server: the project,
+            // the "assigned to me" scope and the open/closed status scope. The remaining filters
+            // (tracker, a specific assignee, priority, version, category, subject) are applied
+            // client-side over the loaded list in RedmineClientForm.FilterAndFillCurrentIssues,
+            // so changing them is instant and needs no server round-trip.
             NameValueCollection parameters = new NameValueCollection();
             if (projectId != -1)
                 parameters.Add(RedmineKeys.PROJECT_ID, projectId.ToString());
 
             if (onlyMe)
                 parameters.Add(RedmineKeys.ASSIGNED_TO_ID, "me");
-            else if (filter.AssignedToId > 0)
-                parameters.Add(RedmineKeys.ASSIGNED_TO_ID, filter.AssignedToId.ToString());
-
-            if (filter.TrackerId > 0)
-                parameters.Add(RedmineKeys.TRACKER_ID, filter.TrackerId.ToString());
 
             if (filter.StatusId > 0)
                 parameters.Add(RedmineKeys.STATUS_ID, filter.StatusId.ToString());
@@ -463,18 +455,6 @@ namespace Redmine.Client
                         break;
                 }
             }
-
-            if (filter.PriorityId > 0)
-                parameters.Add(RedmineKeys.PRIORITY_ID, filter.PriorityId.ToString());
-
-            if (filter.VersionId > 0)
-                parameters.Add(RedmineKeys.FIXED_VERSION_ID, filter.VersionId.ToString());
-
-            if (filter.CategoryId > 0)
-                parameters.Add(RedmineKeys.CATEGORY_ID, filter.CategoryId.ToString());
-
-            if (!String.IsNullOrEmpty(filter.Subject))
-                parameters.Add(RedmineKeys.SUBJECT, "~" + filter.Subject);
 
             return parameters;
         }

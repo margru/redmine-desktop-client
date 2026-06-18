@@ -783,20 +783,22 @@ namespace Redmine.Client
                             NameValueCollection projectParameters = new NameValueCollection { { "include", "trackers" } };
                             Project project = RedmineClientForm.redmine.Get<Project>(projectId.Id.ToString(), projectParameters.ToOptions());
                             dataCache.Trackers = project.Trackers;
-                            dataCache.Categories = new List<IssueCategory>(RedmineClientForm.redmine.Get<IssueCategory>(parameters.ToOptions()));
+                            // Get<T>(...) returns null (not empty) for projects with no categories/
+                            // versions/members; OrEmpty() keeps the Insert/ConvertAll calls safe.
+                            dataCache.Categories = RedmineClientForm.redmine.Get<IssueCategory>(parameters.ToOptions()).OrEmpty();
                             dataCache.Categories.Insert(0, new IssueCategory { Name = "" });
-                            dataCache.Statuses = RedmineClientForm.redmine.Get<IssueStatus>(parameters.ToOptions());
-                            dataCache.Versions = (List<Redmine.Net.Api.Types.Version>)RedmineClientForm.redmine.Get<Redmine.Net.Api.Types.Version>(parameters.ToOptions());
+                            dataCache.Statuses = RedmineClientForm.redmine.Get<IssueStatus>(parameters.ToOptions()).OrEmpty();
+                            dataCache.Versions = RedmineClientForm.redmine.Get<Redmine.Net.Api.Types.Version>(parameters.ToOptions()).OrEmpty();
                             dataCache.Versions.Insert(0, new Redmine.Net.Api.Types.Version { Name = "" });
                             if (RedmineClientForm.RedmineVersion >= ApiVersion.V14x)
                             {
-                                List<ProjectMembership> projectMembers = (List<ProjectMembership>)RedmineClientForm.redmine.Get<ProjectMembership>(parameters.ToOptions());
+                                List<ProjectMembership> projectMembers = RedmineClientForm.redmine.Get<ProjectMembership>(parameters.ToOptions()).OrEmpty();
                                 //RedmineClientForm.DataCache.Watchers = projectMembers.ConvertAll(new Converter<ProjectMembership, Assignee>(MemberToAssignee));
                                 dataCache.ProjectMembers = projectMembers.ConvertAll(new Converter<ProjectMembership, ProjectMember>(ProjectMember.MembershipToMember));
                                 dataCache.ProjectMembers.Insert(0, new ProjectMember(new ProjectMembership { User = ClientExtensionMethods.Named(0, "") }));
                                 if (RedmineClientForm.RedmineVersion >= ApiVersion.V22x)
                                 {
-                                    Enumerations.UpdateIssuePriorities(RedmineClientForm.redmine.Get<IssuePriority>());
+                                    Enumerations.UpdateIssuePriorities(RedmineClientForm.redmine.Get<IssuePriority>().OrEmpty());
                                     Enumerations.SaveIssuePriorities();
                                 }
                             }
